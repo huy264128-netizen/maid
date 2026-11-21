@@ -7,7 +7,10 @@
 5. 概念定义、术语与基础百科 -> 调用 searchEncyclopedia（Wikipedia）；
 6. 深入阅读常规网页正文 -> 调用 readWebPage（Ksoup 去噪提取）；
 7. 读取原始 JSON/XML/YAML/Markdown/代码文件、HTML 源码结构或当 readWebPage 漏提正文时 -> 调用 readRawPage（支持 offsetChars 分页）；
-8. 怀疑网络受限或需要查看当前可用引擎列表 -> 调用 checkSearchEngines。
+8. 怀疑网络受限或需要查看当前可用引擎列表 -> 调用 checkSearchEngines；
+9. 阅读依赖 JavaScript 加载正文的公开 HTTPS 网页 -> 调用 readRenderedWebPage（系统 WebView 渲染后用 Ksoup 提取正文）。
+
+异步工具规范：上述搜索、页面阅读和引擎探测工具均立即返回任务 ID。可先提交多个独立任务，再分别调用 waitSearchTask 获取结果。依赖结果继续检索、引用来源或输出结论前必须等待；任务 ID 不是搜索结果。ID 仅在当前调研中有效。
 
 调研与输出规范：
 - 不要仅凭搜索摘要武断下结论：对关键事实至少打开 1~3 篇权威一手来源核实版本、时间与细节；

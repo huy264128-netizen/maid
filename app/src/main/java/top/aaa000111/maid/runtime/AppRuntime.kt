@@ -317,11 +317,15 @@ object AppRuntime {
         return synchronized(this) {
             sharedWebPageFetcher ?: WebPageFetcher(
                 httpClient = getOrCreateSearchHttpClient(),
+                context = appContext,
             ).also {
                 sharedWebPageFetcher = it
             }
         }
     }
+
+    internal fun createBrowserUseAgentManager() =
+        appContext?.let { top.aaa000111.maid.agent.BrowserUseAgentManager(it) }
 
     /** 刷新已持久化的搜索配置缓存，并清空所有搜索引擎的可用性探测缓存。 */
     suspend fun syncSearchConfig() {

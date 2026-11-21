@@ -23,6 +23,12 @@ Manager 是一个 ToolSet。具体业务工具用 `@Tool` 注册，提交执行�
 | DeviceActionAgentManager | executeDeviceTask | waitDeviceTask | Android 授权、安全检查和设备锁 |
 | ProotLinuxAgentManager | executeProotLinuxTask、executeProotLinuxTaskWithLlmApi | waitLinuxTask | 专用终端、任务锁、临时凭据清理 |
 | ResearchAgentManager | executeResearchTask | waitResearchTask | 检索、阅读与来源整理 |
+| BrowserUseAgentManager | executeBrowserTask | waitBrowserTask | 应用内 WebView 标签页、导航事件、离屏画面与输入 |
+
+Planner 在 Android 运行时可委托 Browser Use Agent 操作公开 HTTPS 网页。每个任务建立自己的离屏浏览器，最多四个标签页，结束后释放。浏览器返回标签的 URL 和导航状态，支持按版本等待事件、使用截图像素输入，以及通过 `TimedWait` 定时挂起或启动异步计时。截图理解需要配置快速视觉模型。
+| SearchEngineManager（`search/`） | 五类 search 工具、readWebPage、readRawPage、readRenderedWebPage、checkSearchEngines | waitSearchTask | 搜索路由、网页抓取和来源记录 |
+
+ResearchAgent 每次调研创建 SearchEngineManager。静态正文和原始响应分别由 readWebPage 和 readRawPage 读取。readRenderedWebPage 单独使用系统 WebView 渲染公开 HTTPS 页面，再用 Ksoup 提取正文。三个入口均返回任务 ID，由 waitSearchTask 取得结果。搜索次数、阅读次数和来源在实际任务执行中记录。底层 SearchEngine / SearchEngineRouter 的挂起业务 API 继续供内部和设置页使用。
 
 等待逻辑由基类实现。每个具体 Manager 只用一个具名 `@Tool` 方法转发到基类，避免多个 Manager 同时挂载时产生同名工具；具体启动工具仍正常通过 Koog 的 `tools(manager)` 注册。
 

@@ -135,9 +135,10 @@ object ToolCallDisplayFormatter {
         "getRecentForegroundApps" to "查询最近前台应用",
         "getAppUsageSummary" to "查询应用使用时长统计",
         // SystemSettingsToolSet
-        "getDisplayAndSoundSettings" to "读取亮度与音量设置",
+        "getDisplaySettings" to "读取显示设置",
         "setScreenBrightness" to "调整屏幕亮度",
         "setScreenOffTimeout" to "设置息屏超时时间",
+        "getStreamVolumes" to "读取音频流音量",
         "setStreamVolume" to "调整音频流音量",
     )
 

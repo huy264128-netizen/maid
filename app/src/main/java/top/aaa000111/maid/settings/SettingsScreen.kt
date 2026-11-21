@@ -2193,7 +2193,7 @@ private fun PrivilegeManagementContent(
             title = stringResource(R.string.settings_priv_write_settings_title),
             description = stringResource(R.string.settings_priv_write_settings_desc),
             statusDetail = if (overview.writeSettingsGranted) {
-                "已授予修改系统设置权限，可直接调用 system_settings 工具集调节亮度、息屏超时与音量"
+                "已授予修改系统设置权限，可直接调用 system_settings 工具集调节亮度和息屏超时"
             } else {
                 "未授予修改系统设置权限，点击前往系统设置开启"
             },

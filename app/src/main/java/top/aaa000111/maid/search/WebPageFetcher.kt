@@ -1,5 +1,8 @@
 package top.aaa000111.maid.search
 
+import android.content.Context
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.fleeksoft.ksoup.Ksoup
 import java.net.InetAddress
 import java.net.URI
@@ -12,6 +15,7 @@ import java.net.URI
 class WebPageFetcher(
     private val httpClient: SearchHttpClient,
     private val timeoutMillis: Long = SearchHttpClient.DEFAULT_PAGE_TIMEOUT_MS,
+    private val context: Context? = null,
 ) {
     /**
      * 抓取指定网页并用 Ksoup 清洗提取干净正文。
@@ -35,35 +39,10 @@ class WebPageFetcher(
             contentType.contains("json") ||
             contentType.contains("markdown")
 
-        val title: String
-        val extractedText: String
-        if (isPlainText) {
-            title = normalizedUrl
-            extractedText = normalizeReadableText(response.body)
+        val (title, extractedText) = if (isPlainText) {
+            normalizedUrl to normalizeReadableText(response.body)
         } else {
-            val document = Ksoup.parse(html = response.body, baseUri = response.finalUrl)
-            title = SearchEngine.normalizeWhitespace(document.title()).ifEmpty { response.finalUrl }
-            document.select(
-                "script, style, noscript, svg, canvas, iframe, nav, footer, header, aside, form, " +
-                    "[role=navigation], [role=banner], [role=contentinfo], .advertisement, .ads",
-            ).remove()
-
-            val primaryRoot = document.selectFirst("article")
-                ?: document.selectFirst("main")
-                ?: document.selectFirst("[role=main]")
-                ?: document.body()
-
-            val paragraphs = primaryRoot
-                .select("h1, h2, h3, h4, p, li, pre, blockquote, td")
-                .map { SearchEngine.normalizeWhitespace(it.text()) }
-                .filter { it.length >= 2 }
-                .distinct()
-
-            extractedText = if (paragraphs.isNotEmpty()) {
-                paragraphs.joinToString(separator = "\n")
-            } else {
-                normalizeReadableText(primaryRoot.text())
-            }
+            extractHtml(response.body, response.finalUrl)
         }
 
         val truncated = extractedText.length > safeMaxChars
@@ -119,6 +98,47 @@ class WebPageFetcher(
             totalCharLength = totalLen,
             truncated = truncated,
         )
+    }
+
+    internal data class RenderedPage(val finalUrl: String, val title: String, val content: String)
+
+    internal suspend fun fetchRendered(url: String, maxChars: Int): RenderedPage {
+        val loader = RenderedWebPageLoader(checkNotNull(context) { "WebView 仅在 Android 应用运行时可用" })
+        val page = loader.load(validateTargetUrl(url), timeoutMillis)
+        return withContext(Dispatchers.Default) {
+            val (title, text) = extractHtml(page.html, page.url)
+            check(text.isNotBlank()) { "渲染后没有提取到正文" }
+            val limit = maxChars.coerceIn(500, MAX_ALLOWED_CHARS)
+            val content = if (text.length > limit) text.take(limit).trimEnd() + "\n...(内容已截断)" else text
+            RenderedPage(page.url, title, content)
+        }
+    }
+
+    private fun extractHtml(html: String, finalUrl: String): Pair<String, String> {
+        val document = Ksoup.parse(html = html, baseUri = finalUrl)
+        val title = SearchEngine.normalizeWhitespace(document.title()).ifEmpty { finalUrl }
+        document.select(
+            "script, style, noscript, svg, canvas, iframe, nav, footer, header, aside, form, " +
+                "[role=navigation], [role=banner], [role=contentinfo], .advertisement, .ads",
+        ).remove()
+
+        val primaryRoot = document.selectFirst("article")
+            ?: document.selectFirst("main")
+            ?: document.selectFirst("[role=main]")
+            ?: document.body()
+
+        val paragraphs = primaryRoot
+            .select("h1, h2, h3, h4, p, li, pre, blockquote, td")
+            .map { SearchEngine.normalizeWhitespace(it.text()) }
+            .filter { it.length >= 2 }
+            .distinct()
+
+        val extractedText = if (paragraphs.isNotEmpty()) {
+            paragraphs.joinToString(separator = "\n")
+        } else {
+            normalizeReadableText(primaryRoot.text())
+        }
+        return title to extractedText
     }
 
     private fun validateTargetUrl(url: String): String {

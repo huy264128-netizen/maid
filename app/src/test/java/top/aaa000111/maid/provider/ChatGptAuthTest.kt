@@ -33,6 +33,27 @@ import java.util.concurrent.atomic.AtomicInteger
 
 class ChatGptAuthTest {
 
+    @Test
+    fun loopback_survivesIdleBrowserConnection() = runBlocking {
+        ChatGptLoopbackCallbackServer().use { server ->
+            val completion = async(Dispatchers.IO) { server.awaitCallback(15_000) }
+            java.net.Socket("127.0.0.1", server.boundPort).use { idle ->
+                idle.soTimeout = 8_000
+                // 模拟浏览器预连接：不发送 HTTP 请求，等待服务端关闭该连接。
+                assertEquals(-1, kotlinx.coroutines.withContext(Dispatchers.IO) { idle.getInputStream().read() })
+            }
+            val connection = URL("${server.redirectUri}?code=test&state=test").openConnection() as HttpURLConnection
+            connection.connectTimeout = 2_000
+            connection.readTimeout = 3_000
+            try {
+                assertEquals(200, connection.responseCode)
+                assertEquals("test", completion.await().code)
+            } finally {
+                connection.disconnect()
+            }
+        }
+    }
+
     private class InMemoryChatGptAuthStore : ChatGptAuthStore {
         var hostId: String? = null
         var clientId: String? = null

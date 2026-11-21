@@ -141,6 +141,7 @@ class ResearchAgentTest {
         val (router, fetcher) = createStubSearchEnv()
         val executor = ScriptedPromptExecutor { turn, prompt, _ ->
             when (turn) {
+                2, 4, 6 -> waitForAgentTask(prompt, "waitSearchTask")
                 1 -> listOf(
                     Message.Tool.Call(
                         id = "call_web_1",
@@ -149,7 +150,7 @@ class ResearchAgentTest {
                         metaInfo = ResponseMetaInfo.Empty,
                     ),
                 )
-                2 -> {
+                3 -> {
                     val toolMsg = prompt.messages.last { it is Message.Tool.Result }
                     assertTrue(toolMsg.content.contains("https://example.org/litert-lm-release"))
                     listOf(
@@ -161,7 +162,7 @@ class ResearchAgentTest {
                         ),
                     )
                 }
-                3 -> {
+                5 -> {
                     val academicMsg = prompt.messages.last { it is Message.Tool.Result }
                     assertTrue(academicMsg.content.contains("https://arxiv.org/abs/2602.00001"))
                     listOf(
@@ -223,6 +224,7 @@ class ResearchAgentTest {
                     "readWebPage",
                     "readRawPage",
                     "checkSearchEngines",
+                    "waitSearchTask",
                 ),
             ),
         )

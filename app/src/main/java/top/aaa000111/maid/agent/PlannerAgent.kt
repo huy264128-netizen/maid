@@ -31,6 +31,7 @@ import top.aaa000111.maid.chat.nodeExecuteToolWithStatus
 import top.aaa000111.maid.provider.ModelConfigRepository
 import top.aaa000111.maid.provider.ModelRole
 import top.aaa000111.maid.provider.RoleModelSelection
+import top.aaa000111.maid.runtime.AppRuntime
 import top.aaa000111.maid.settings.AgentStepConfig
 import top.aaa000111.maid.settings.AgentStepConfigRepository
 
@@ -144,6 +145,9 @@ class PlannerAgent(
                 extra = ResearchAgentManager(researchAgent).asToolRegistry(),
             )
         }
+        AppRuntime.createBrowserUseAgentManager()?.let { browserManager ->
+            effectiveToolRegistry = mergeTools(effectiveToolRegistry, browserManager.asToolRegistry())
+        }
         if (extraToolRegistry.tools.isNotEmpty()) {
             effectiveToolRegistry = mergeTools(
                 base = effectiveToolRegistry,
@@ -197,7 +201,7 @@ class PlannerAgent(
         val resolvedMaxCheckpoints = resolveMaxCheckpoints(maxCheckpoints)
 
         val effectiveSystemPrompt = buildEffectiveSystemPrompt(
-            baseSystemPrompt = systemPrompt + taskSkillGuidance(),
+            baseSystemPrompt = systemPrompt + taskSkillGuidance(includeCatalog = true),
             hasDeviceActionTool = deviceActionAgent != null,
             hasProotLinuxTool = prootLinuxLifecycleManager != null,
             allowProotLlmApiKeyAccess = allowProotLlmApiKeyAccess,

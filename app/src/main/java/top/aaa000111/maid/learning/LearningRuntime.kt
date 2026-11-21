@@ -31,10 +31,12 @@ object LearningRuntime {
                 val skills = SkillRepository(root.resolve("skills"))
                 val snapshot = skills.snapshot()
                 // 用户安装的同名技能不被内置种子覆盖。
-                val id = "task-verification"
-                if (snapshot.catalog[id] == null || snapshot.catalog[id]?.source == "bundled") {
-                    val content = app.assets.open("skills/$id/SKILL.md").bufferedReader().use { it.readText() }
-                    skills.install(mapOf("SKILL.md" to content), source = "bundled")
+                for (id in listOf("task-verification", "android-app-download")) {
+                    val installed = snapshot.catalog[id]
+                    if (installed == null || installed.source == "bundled") {
+                        val content = app.assets.open("skills/$id/SKILL.md").bufferedReader().use { it.readText() }
+                        skills.install(mapOf("SKILL.md" to content), source = "bundled")
+                    }
                 }
                 TaskRecorder(evidence, skills, buildJsonObject {
                     put("androidApi", android.os.Build.VERSION.SDK_INT)

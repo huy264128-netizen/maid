@@ -362,6 +362,20 @@ class ResearchInternalToolSet(
         }.trimEnd()
     }
 
+    internal suspend fun readRenderedWebPage(url: String, maxChars: Int): String {
+        if (url.isBlank()) return "错误：网页 URL 不能为空。"
+        pageReadCounter.incrementAndGet()
+        return try {
+            val page = pageFetcher.fetchRendered(url, maxChars)
+            synchronized(collectedUrls) { collectedUrls += page.finalUrl }
+            "网页标题：${page.title}\n最终 URL：${page.finalUrl}\n\n${page.content}"
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            "网页渲染失败：${error.message ?: error::class.simpleName}"
+        }
+    }
+
     private fun recordSources(response: SearchResponse) {
         synchronized(collectedUrls) {
             response.results.forEach { collectedUrls += it.url }
@@ -486,7 +500,7 @@ class ResearchAgent(
         }
 
         var effectiveToolRegistry = ToolRegistry {
-            tools(internalTools)
+            tools(top.aaa000111.maid.search.SearchEngineManager(internalTools))
         }
         if (directImageToolSet != null) {
             effectiveToolRegistry += ToolRegistry { tools(directImageToolSet) }
@@ -623,14 +637,16 @@ class ResearchAgent(
 
         internal fun createStrategy(
             directImageToolSet: DirectImageReadToolSet? = null,
-        ): AIAgentGraphStrategy<String, String> = strategy(AGENT_NAME) {
+            agentScopeLabel: String = "调研",
+            strategyName: String = AGENT_NAME,
+        ): AIAgentGraphStrategy<String, String> = strategy(strategyName) {
             val nodeCallLLM by nodeLLMRequest(
                 name = "research_llm_request",
                 allowToolCalls = true,
             )
             val nodeExecuteTool by nodeExecuteToolWithStatus(
                 name = "research_execute_tool",
-                agentScopeLabel = "调研",
+                agentScopeLabel = agentScopeLabel,
             )
             val nodeSendToolResult by nodeLLMSendToolResultWithDirectImages(
                 name = "research_send_tool_result",

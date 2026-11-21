@@ -3,14 +3,13 @@ package top.aaa000111.maid.androidtool
 import android.accessibilityservice.AccessibilityService
 import android.graphics.Path
 import android.os.Bundle
-import android.view.KeyEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import ai.koog.agents.core.tools.annotations.LLMDescription
 import ai.koog.agents.core.tools.annotations.Tool
 import top.aaa000111.maid.shizuku.ShizukuManager
 
 /**
- * 输入与交互工具集：涵盖屏幕点击、滑动、物理/系统按键与文本输入。
+ * 输入与交互工具集：涵盖屏幕点击、滑动与文本输入。
  *
  * 支持权限：`SHIZUKU`、`ACCESSIBILITY`、`ROOT`（持有其中之一即可加载）。
  */
@@ -115,53 +114,6 @@ class InputToolSet : AndroidToolSet() {
     }
 
     @Tool
-    @LLMDescription("Send an Android KeyEvent keyCode (e.g. 4=BACK, 3=HOME, 187=APP_SWITCH, 66=ENTER, 26=POWER).")
-    suspend fun pressKey(
-        @LLMDescription("Android KeyEvent key code.") keyCode: Int,
-        @LLMDescription("Whether to perform a long press.") longPress: Boolean = false,
-        @LLMDescription("Target display ID (default 0).") displayId: Int = 0,
-    ): String {
-        if (PrivilegeBackend.isShizukuReady()) {
-            val ok = ShizukuManager.injectKeyEvent(keyCode, longPress = longPress, displayId = displayId)
-                .getOrDefault(false)
-            return if (ok) {
-                "Pressed keyCode=$keyCode (longPress=$longPress) via Shizuku"
-            } else {
-                "Failed to press keyCode=$keyCode via Shizuku"
-            }
-        }
-
-        val accessibility = PrivilegeBackend.getAccessibilityService()
-        if (accessibility != null) {
-            val globalAction = mapKeyCodeToGlobalAction(keyCode)
-            if (globalAction != null) {
-                val ok = accessibility.performGlobalAction(globalAction)
-                return if (ok) {
-                    "Performed global action for keyCode=$keyCode via Accessibility"
-                } else {
-                    "Accessibility rejected global action for keyCode=$keyCode"
-                }
-            }
-        }
-
-        if (PrivilegeBackend.isRootAvailable()) {
-            val flag = if (longPress) "--longpress " else ""
-            val result = PrivilegeBackend.execRootShell("input keyevent $flag$keyCode")
-            return if (result.isSuccess) {
-                "Pressed keyCode=$keyCode via Root"
-            } else {
-                "Failed to press keyCode=$keyCode via Root: ${result.stderr.ifBlank { result.errorMessage.orEmpty() }}"
-            }
-        }
-
-        return if (accessibility != null) {
-            "Accessibility only supports navigation/system keyCodes (BACK/HOME/RECENTS/POWER/NOTIFICATIONS); keyCode=$keyCode requires Shizuku or Root"
-        } else {
-            "No available privilege (Shizuku / Accessibility / Root) to press key"
-        }
-    }
-
-    @Tool
     @LLMDescription("Input text into the currently focused field or via system key character injection.")
     suspend fun inputText(
         @LLMDescription("Text content to input.") text: String,
@@ -206,15 +158,6 @@ class InputToolSet : AndroidToolSet() {
         }
 
         return "No available privilege (Shizuku / Accessibility / Root) to input text"
-    }
-
-    private fun mapKeyCodeToGlobalAction(keyCode: Int): Int? = when (keyCode) {
-        KeyEvent.KEYCODE_BACK -> AccessibilityService.GLOBAL_ACTION_BACK
-        KeyEvent.KEYCODE_HOME -> AccessibilityService.GLOBAL_ACTION_HOME
-        KeyEvent.KEYCODE_APP_SWITCH -> AccessibilityService.GLOBAL_ACTION_RECENTS
-        KeyEvent.KEYCODE_POWER -> AccessibilityService.GLOBAL_ACTION_POWER_DIALOG
-        KeyEvent.KEYCODE_NOTIFICATION -> AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS
-        else -> null
     }
 
     private fun findFocusedEditableNode(service: AccessibilityService): AccessibilityNodeInfo? {

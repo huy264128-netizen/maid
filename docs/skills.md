@@ -8,6 +8,8 @@
 
 内置 `task-verification` 技能介绍如何区分工具返回、结果验证和失败排查。可以在聊天中要求“使用 task-verification 技能检查这次任务的结果”。
 
+内置 `android-app-download` 技能覆盖官方来源搜索、APK 变体选择、文件校验和会话交付。Planner 的提示词包含当前任务技能快照中最多 20 条 ID 和 description，便于在规划时判断相关性。遇到应用下载任务时会按提示读取此技能，目录中未列出的技能仍可用 `listSkills` 搜索。
+
 Chat、Planner、DeviceAction、PRoot Linux 和 Research Agent 在有任务上下文时获得两个工具：
 
 | 工具 | 用途 |
@@ -84,7 +86,7 @@ P1 技能包以 `Map<String, String>` 表示，支持 UTF-8 文本：
 
 任务开始时固定技能目录版本，子任务继承同一快照。即使新版在首次读取前发布，旧任务仍读取旧版；新任务读取新索引。每次读取校验包内容哈希，并记录实际读取的技能、版本和文件路径；同一任务重复读同一文件不会重复累计使用记录。
 
-内置技能源文件：`app/src/main/assets/skills/task-verification/SKILL.md`。应用不会覆盖同 ID、来源为 local 的活动技能。旧版本暂时保留，供运行中任务读取。
+内置技能位于 `app/src/main/assets/skills/`，目前包含 `task-verification` 和 `android-app-download`。应用不会覆盖同 ID、来源为 local 的活动技能。旧版本暂时保留，供运行中任务读取。
 
 ## 验证
 

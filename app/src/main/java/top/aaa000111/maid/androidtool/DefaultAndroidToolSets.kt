@@ -10,6 +10,8 @@ object DefaultAndroidToolSets {
     fun createAll(context: Context): List<AndroidToolSet> {
         return listOf(
             InputToolSet(),
+            KeyInputToolSet(),
+            AudioToolSet(context),
             ScreenToolSet(context),
             ShellToolSet(),
             AppControlToolSet(),

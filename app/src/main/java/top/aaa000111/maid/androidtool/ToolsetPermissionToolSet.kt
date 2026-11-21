@@ -54,7 +54,7 @@ object ToolsetPermissionCatalog {
     val INPUT = ToolsetPermissionSpec(
         toolsetId = "input",
         displayTitle = "输入与手势交互工具集",
-        description = "提供屏幕点击、双击、长按、滑动、按键事件与文本输入能力",
+        description = "提供屏幕点击、滑动与文本输入能力",
         requiredPrivileges = listOf(
             AndroidPrivilege.SHIZUKU,
             AndroidPrivilege.ACCESSIBILITY,
@@ -71,8 +71,15 @@ object ToolsetPermissionCatalog {
             "tap",
             "swipe",
             "inputtext",
-            "presskey",
         ),
+    )
+
+    val KEY_INPUT = ToolsetPermissionSpec(
+        toolsetId = "key_input",
+        displayTitle = "按键注入工具集",
+        description = "注入 Android 键码及长按事件",
+        requiredPrivileges = listOf(AndroidPrivilege.SHIZUKU, AndroidPrivilege.ROOT),
+        aliases = setOf("presskey", "按键注入"),
     )
 
     val SCREEN = ToolsetPermissionSpec(
@@ -272,7 +279,7 @@ object ToolsetPermissionCatalog {
     val SYSTEM_SETTINGS = ToolsetPermissionSpec(
         toolsetId = "system_settings",
         displayTitle = "普通系统设置读写工具集",
-        description = "通过修改系统设置权限（WRITE_SETTINGS）、Shizuku 或 Root 提供屏幕亮度、自动亮度模式、息屏超时时间与各音频流音量读写能力",
+        description = "通过修改系统设置权限（WRITE_SETTINGS）、Shizuku 或 Root 提供屏幕亮度、自动亮度模式和息屏超时时间读写能力",
         requiredPrivileges = listOf(
             AndroidPrivilege.WRITE_SETTINGS,
             AndroidPrivilege.SHIZUKU,
@@ -286,16 +293,23 @@ object ToolsetPermissionCatalog {
             "write_settings",
             "writesettings",
             "系统设置",
-            "亮度与音量",
-            "getdisplayandsoundsettings",
+            "getdisplaysettings",
             "setscreenbrightness",
             "setscreenofftimeout",
-            "setstreamvolume",
         ),
+    )
+
+    val AUDIO = ToolsetPermissionSpec(
+        toolsetId = "audio",
+        displayTitle = "音量工具集",
+        description = "读取与调节音量，遵循设备音量和勿扰策略",
+        requiredPrivileges = emptyList(),
+        aliases = setOf("getstreamvolumes", "setstreamvolume", "音量"),
     )
 
     val allSpecs: List<ToolsetPermissionSpec> = listOf(
         INPUT,
+        KEY_INPUT,
         SCREEN,
         SHELL,
         APP_CONTROL,
@@ -305,6 +319,7 @@ object ToolsetPermissionCatalog {
         FILE_MANAGEMENT,
         USAGE_STATS,
         SYSTEM_SETTINGS,
+        AUDIO,
     )
 
     fun resolve(
@@ -471,14 +486,16 @@ object ToolsetPermissionCatalog {
 
         val unlockedSpecs = allSpecs.filter { it.isSatisfiedBy(availablePrivileges) }
         val lockedSpecs = allSpecs.filter { !it.isSatisfiedBy(availablePrivileges) }
-        if (availablePrivileges.isNotEmpty()) {
+        if (unlockedSpecs.isNotEmpty() || availablePrivileges.isNotEmpty()) {
             val activePrivilegeLabels = availablePrivileges.joinToString("、") { privilegeShortLabel(it) }
+                .ifEmpty { "无额外设备权限" }
             appendLine()
             appendLine("[当前设备已就绪权限与工具集状态（已持有的权限：$activePrivilegeLabels）]")
             if (unlockedSpecs.isNotEmpty()) {
                 appendLine("以下 ${unlockedSpecs.size} 个工具集【已就绪/无需申请】，已经可以直接使用，严禁对它们调用 `requestToolsetPermission`：")
                 unlockedSpecs.forEach { spec ->
                     val matchedLabels = spec.matchedPrivileges(availablePrivileges).joinToString("、") { privilegeShortLabel(it) }
+                        .ifEmpty { "无需额外权限" }
                     appendLine("- `${spec.toolsetId}`（${spec.displayTitle}）——【已就绪/无需申请】（满足条件：$matchedLabels）")
                 }
             }
@@ -526,7 +543,7 @@ class ToolsetPermissionToolSet(
     @LLMDescription(
         "Request permission from the user ONLY for an Android toolset whose required privilege is NOT currently satisfied. " +
             "IMPORTANT: Do NOT call this tool for any toolset already marked as ready/unlocked ('已就绪/无需申请') in the system prompt! " +
-            "Pass the toolsetName you need (one of: 'input', 'screen', 'shell', 'app_control', 'window', 'root_system', 'device_policy', 'file_management', 'usage_stats', 'system_settings'). " +
+            "Pass the toolsetName you need (one of: 'input', 'key_input', 'screen', 'shell', 'app_control', 'window', 'root_system', 'device_policy', 'file_management', 'usage_stats', 'system_settings'). " +
             "If the toolset is already satisfied, it immediately returns granted=true without showing any card. " +
             "Otherwise, it sends a permission request card to the chat UI and waits for the user to click Confirm ('确定').",
     )
@@ -534,7 +551,8 @@ class ToolsetPermissionToolSet(
         @LLMDescription(
             "Identifier of a currently LOCKED/UNGRANTED toolset that is required for the task. " +
                 "Never pass a toolset that is already ready/unlocked. Valid values: " +
-                "'input' (tap/swipe/key/text input), " +
+                "'input' (tap/swipe/text input), " +
+                "'key_input' (Android keycodes and long press), " +
                 "'screen' (screenshot/UI tree/node click/global action), " +
                 "'shell' (general shell commands), " +
                 "'app_control' (top activity/start/stop apps/processes), " +
@@ -543,7 +561,7 @@ class ToolsetPermissionToolSet(
                 "'device_policy' (Dhizuku hide/suspend/uninstall-block/lock), " +
                 "'file_management' (standard Android file/directory browse, read, write, copy, move, delete, search), " +
                 "'usage_stats' (standard Android recent foreground apps and app usage duration), " +
-                "'system_settings' (standard Android screen brightness, auto-brightness, screen-off timeout, audio volume).",
+                "'system_settings' (standard Android screen brightness, auto-brightness, screen-off timeout).",
         )
         toolsetName: String,
     ): String {

@@ -238,7 +238,16 @@ class PlannerAgentTest {
         val manager = PlannerLifecycleManager(plannerAgent = plannerAgent)
 
         val evidence = TaskEvidenceRepository(tempFolder.root.toPath().resolve("evidence"))
-        val recorder = TaskRecorder(evidence, SkillRepository(tempFolder.root.toPath().resolve("skills")))
+        val skills = SkillRepository(tempFolder.root.toPath().resolve("skills"))
+        skills.install(mapOf("SKILL.md" to """
+            ---
+            name: settings-check
+            description: 核对系统设置的执行结果
+            ---
+
+            Skill body only available through readSkill.
+        """.trimIndent()))
+        val recorder = TaskRecorder(evidence, skills)
         val result = recorder.run("planner-session", agentType = "PLANNER") {
             manager.runPlan(goal = "打开手机系统设置并确认")
         }
@@ -266,6 +275,9 @@ class PlannerAgentTest {
             .joinToString("\n") { it.content }
         assertTrue(checkpoint2Prompt.contains("已完成第1个检查点：系统设置已打开"))
         assertTrue(checkpoint2Prompt.contains("target_page: system_settings"))
+        assertTrue(checkpoint2Prompt.contains("settings-check"))
+        assertTrue(checkpoint2Prompt.contains("核对系统设置的执行结果"))
+        assertTrue(!checkpoint2Prompt.contains("Skill body only available through readSkill."))
     }
 
     @Test

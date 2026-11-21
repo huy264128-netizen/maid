@@ -4,6 +4,8 @@ import android.content.Context
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -531,6 +533,7 @@ class ChatGptLoopbackCallbackServer(
                 serverSocket.soTimeout = 1_500
                 try {
                     while (!serverSocket.isClosed) {
+                        currentCoroutineContext().ensureActive()
                         val socket = try {
                             serverSocket.accept()
                         } catch (_: SocketTimeoutException) {
@@ -542,45 +545,50 @@ class ChatGptLoopbackCallbackServer(
                             throw e
                         }
 
-                        socket.use { client ->
-                            client.soTimeout = 5_000
-                            val reader = BufferedReader(InputStreamReader(client.getInputStream(), Charsets.UTF_8))
-                            val requestLine = reader.readLine().orEmpty()
-                            // 消费 HTTP 请求头直至空行
-                            while (true) {
-                                val headerLine = reader.readLine() ?: break
-                                if (headerLine.isEmpty()) break
-                            }
+                        try {
+                            socket.use { client ->
+                                client.soTimeout = 5_000
+                                val reader = BufferedReader(InputStreamReader(client.getInputStream(), Charsets.UTF_8))
+                                val requestLine = reader.readLine().orEmpty()
+                                // 消费 HTTP 请求头直至空行
+                                while (true) {
+                                    val headerLine = reader.readLine() ?: break
+                                    if (headerLine.isEmpty()) break
+                                }
 
-                            val rawTarget = requestLine.split(' ').getOrNull(1).orEmpty()
-                            val path = rawTarget.substringBefore('?')
-                            if (path != callbackPath) {
+                                val rawTarget = requestLine.split(' ').getOrNull(1).orEmpty()
+                                val path = rawTarget.substringBefore('?')
+                                if (path != callbackPath) {
+                                    writeHttpResponse(
+                                        output = client.getOutputStream(),
+                                        statusLine = "HTTP/1.1 404 Not Found",
+                                        htmlBody = "<html><body>Not Found</body></html>",
+                                    )
+                                    continue
+                                }
+
+                                val query = rawTarget.substringAfter('?', "")
+                                val params = parseQueryParams(query)
+                                val payload = ChatGptCallbackPayload(
+                                    code = params["code"]?.takeIf { it.isNotBlank() },
+                                    state = params["state"]?.takeIf { it.isNotBlank() },
+                                    clientId = params["client_id"]?.takeIf { it.isNotBlank() },
+                                    error = params["error"]?.takeIf { it.isNotBlank() },
+                                    errorDescription = params["error_description"]?.takeIf { it.isNotBlank() },
+                                )
+
+                                val hasError = !payload.error.isNullOrBlank() || payload.code.isNullOrBlank()
+                                val html = buildCallbackHtml(isError = hasError, errorText = payload.errorDescription ?: payload.error)
                                 writeHttpResponse(
                                     output = client.getOutputStream(),
-                                    statusLine = "HTTP/1.1 404 Not Found",
-                                    htmlBody = "<html><body>Not Found</body></html>",
+                                    statusLine = if (hasError) "HTTP/1.1 400 Bad Request" else "HTTP/1.1 200 OK",
+                                    htmlBody = html,
                                 )
-                                continue
+                                return@withContext payload
                             }
-
-                            val query = rawTarget.substringAfter('?', "")
-                            val params = parseQueryParams(query)
-                            val payload = ChatGptCallbackPayload(
-                                code = params["code"]?.takeIf { it.isNotBlank() },
-                                state = params["state"]?.takeIf { it.isNotBlank() },
-                                clientId = params["client_id"]?.takeIf { it.isNotBlank() },
-                                error = params["error"]?.takeIf { it.isNotBlank() },
-                                errorDescription = params["error_description"]?.takeIf { it.isNotBlank() },
-                            )
-
-                            val hasError = !payload.error.isNullOrBlank() || payload.code.isNullOrBlank()
-                            val html = buildCallbackHtml(isError = hasError, errorText = payload.errorDescription ?: payload.error)
-                            writeHttpResponse(
-                                output = client.getOutputStream(),
-                                statusLine = if (hasError) "HTTP/1.1 400 Bad Request" else "HTTP/1.1 200 OK",
-                                htmlBody = html,
-                            )
-                            return@withContext payload
+                        } catch (_: java.io.IOException) {
+                            // 浏览器预连接、提前断开或不完整请求只关闭本次连接，继续等 OAuth 回调。
+                            currentCoroutineContext().ensureActive()
                         }
                     }
                     throw CancellationException("登录回调监听已关闭")

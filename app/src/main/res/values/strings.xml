@@ -157,7 +157,7 @@
     <string name="settings_priv_usage_stats_action_open">前往使用情况访问设置</string>
     <string name="settings_priv_usage_stats_action_recheck">已授权（刷新检测）</string>
     <string name="settings_priv_write_settings_title">修改系统设置权限</string>
-    <string name="settings_priv_write_settings_desc">普通安卓权限（WRITE_SETTINGS）：免 Root / 免 Shizuku 调整屏幕亮度、自动息屏超时与各通道音量</string>
+    <string name="settings_priv_write_settings_desc">普通安卓权限（WRITE_SETTINGS）：免 Root / 免 Shizuku 调整屏幕亮度、自动亮度模式和息屏超时</string>
     <string name="settings_priv_write_settings_action_open">前往修改系统设置授权</string>
     <string name="settings_priv_write_settings_action_recheck">已授权（刷新检测）</string>
     <string name="settings_priv_overlay_title">悬浮窗权限</string>
