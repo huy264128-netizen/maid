@@ -7,7 +7,7 @@
 - 单模块 Android 应用：`:app`，包名 `top.aaa000111.maid`。
 - Kotlin、Jetpack Compose Material 3、Koog、Ktor、DataStore、Tink、Shizuku/Dhizuku、LiteRT-LM。
 - Android SDK：min 31、compile/target 37；打包 ABI：`arm64-v8a`、`x86_64`。
-- Gradle Wrapper 9.6.0；Daemon Java 25；Java 源码兼容级别 17。版本来源是 Gradle 配置和 `gradle/libs.versions.toml`。
+- Gradle Wrapper 9.6.0；Daemon Java 25；Java 源码兼容级别 17。版本来源是 Gradle 配置和 `gradle/libs.versions.toml`。应用版本遵循 `大版本号.中间版本号.小版本号`，`versionCode = 大版本号 * 10000 + 中间版本号 * 100 + 小版本号`；每次发布同步更新 `versionName` 与 `versionCode`。
 - CMake 3.22.1 编译 PRoot 和 loader；`third_party/vtfx/src/main/kotlin` 直接加入 app source set。
 - 开始修改前阅读 [README](README.md)，按任务参考[开发指南](docs/development.md)和[架构说明](docs/architecture.md)。
 

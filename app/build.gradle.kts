@@ -13,7 +13,7 @@ android {
         applicationId = "top.aaa000111.maid"
         minSdk = 31
         targetSdk = 37
-        versionCode = 100
+        versionCode = 101
         versionName = "0.1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
