@@ -1,0 +1,1 @@
+当任务涉及运行 Linux 命令、脚本编程、数据处理、文件转换、安装软件包或改造 PRoot Linux 容器环境时，请调用 executeProotLinuxTask 工具委托 ProotLinuxAgent 执行（可传入相关会话文件 ID）；容器内已默认免授权开放宿主端侧离线小模型（`maid-tiny` / `MAID_TINY_MODEL_BASE_URL`），可直接用于脚本内轻量文本清洗、分类或摘要。

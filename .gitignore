@@ -1,0 +1,38 @@
+# Gradle
+.gradle/
+**/build/
+
+# Android Studio / IntelliJ local state
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Android SDK and machine-local configuration
+local.properties
+
+# Native build intermediates
+.cxx/
+.externalNativeBuild/
+
+# Generated outputs and captures
+captures/
+app/release/
+*.apk
+*.aab
+
+# Local signing material and secrets
+*.jks
+*.keystore
+*.p12
+*.pem
+*.key
+.env
+.env.*
+!*.env.example
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo

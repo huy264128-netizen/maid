@@ -1,0 +1,16 @@
+# Add project specific R8 rules here.
+# AGP will combine all keep rule files in src/main/keepRules to pass to R8
+#
+# For more details, see
+#   https://d.android.com/r/tools/gradle-api/keep-rules
+
+# Keep Shizuku UserService and AIDL classes for remote privileged process binding
+-keep class top.aaa000111.maid.shizuku.ShizukuUserService {
+    public <init>(...);
+    *;
+}
+-keep class top.aaa000111.maid.shizuku.PrivilegedSystemManagers { *; }
+-keep class top.aaa000111.maid.shizuku.IShizukuUserService** { *; }
+-keep class top.aaa000111.maid.shizuku.ShellCommandResult** { *; }
+-keep class top.aaa000111.maid.shizuku.PrivilegedProcessInfo** { *; }
+-keep class top.aaa000111.maid.shizuku.PrivilegedDisplayInfo** { *; }
