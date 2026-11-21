@@ -35,15 +35,13 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketException
 import java.nio.charset.StandardCharsets
-import java.security.MessageDigest
-import java.security.SecureRandom
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * 面向本机 PRoot Linux 容器的端侧 [TinyModel] 轻量本地 HTTP 桥接服务：
  * - 仅绑定 `127.0.0.1` 随机空闲端口，零额外第三方服务端依赖；
- * - 进程级随机 Bearer Token 鉴权（仅防同机其他应用访问，无需用户条件授权）；
+ * - 本机客户端直接通过 HTTP 调用；
  * - 每次请求实时读取 [tinyModelProvider]（默认 [AppRuntime.tinyModel]），在设置中切换小模型后无需重启 PRoot 即生效；
  * - 暴露 OpenAI 兼容端点（`GET /v1/models`、`POST /v1/chat/completions` 含非流式与 SSE 流式）、
  *   精简生成端点（`POST /generate`）与健康检查端点（`GET /health`）。
@@ -51,7 +49,6 @@ import java.util.concurrent.atomic.AtomicBoolean
 class TinyModelLocalBridge(
     private val tinyModelProvider: () -> TinyModel? = { AppRuntime.tinyModel },
     private val requestTimeoutMillis: Long = DEFAULT_REQUEST_TIMEOUT_MS,
-    private val tokenGenerator: () -> String = ::generateRandomToken,
 ) : AutoCloseable {
 
     private val lifecycleLock = Any()
@@ -68,10 +65,6 @@ class TinyModelLocalBridge(
 
     @Volatile
     var port: Int = 0
-        private set
-
-    @Volatile
-    var authToken: String = ""
         private set
 
     val isRunning: Boolean
@@ -97,12 +90,11 @@ class TinyModelLocalBridge(
 
             val loopback = InetAddress.getByName("127.0.0.1")
             val boundSocket = ServerSocket(0, 50, loopback)
-            val generatedToken = tokenGenerator().trim().ifEmpty { generateRandomToken() }
+
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
             serverSocket = boundSocket
             port = boundSocket.localPort
-            authToken = generatedToken
             requestScope = scope
 
             val thread = Thread({
@@ -124,7 +116,6 @@ class TinyModelLocalBridge(
         val modelId = tinyModelProvider()?.spec?.id ?: TinyModelCatalog.DEFAULT.id
         return linkedMapOf(
             ENV_BASE_URL to baseUrl,
-            ENV_API_KEY to authToken,
             ENV_GENERATE_URL to generateUrl,
             ENV_HEALTH_URL to healthUrl,
             ENV_MODEL_NAME to modelId,
@@ -171,17 +162,6 @@ class TinyModelLocalBridge(
             val output = BufferedOutputStream(conn.getOutputStream())
             try {
                 val request = readHttpRequest(input) ?: return
-                if (!isAuthorized(request.headers)) {
-                    writeOpenAiError(
-                        output = output,
-                        statusCode = 401,
-                        statusText = "Unauthorized",
-                        message = "Missing or invalid Bearer token for Maid local TinyModel bridge.",
-                        type = "authentication_error",
-                    )
-                    return
-                }
-
                 when {
                     request.method == "GET" && request.path == "/health" -> {
                         handleHealth(output)
@@ -527,26 +507,9 @@ class TinyModelLocalBridge(
         return tinyModel
     }
 
-    private fun isAuthorized(headers: Map<String, String>): Boolean {
-        val expected = authToken
-        if (expected.isEmpty()) return false
-        val authHeader = headers["authorization"]?.trim().orEmpty()
-        val candidate = when {
-            authHeader.length > 7 && authHeader.substring(0, 7).equals("Bearer ", ignoreCase = true) ->
-                authHeader.substring(7).trim()
-            else -> headers["x-maid-tiny-token"]?.trim().orEmpty()
-        }
-        if (candidate.isEmpty()) return false
-        return MessageDigest.isEqual(
-            expected.toByteArray(StandardCharsets.UTF_8),
-            candidate.toByteArray(StandardCharsets.UTF_8),
-        )
-    }
-
     private data class ParsedHttpRequest(
         val method: String,
         val path: String,
-        val headers: Map<String, String>,
         val body: String,
     )
 
@@ -605,7 +568,6 @@ class TinyModelLocalBridge(
         return ParsedHttpRequest(
             method = method,
             path = path,
-            headers = headers,
             body = bodyBytes.toString(StandardCharsets.UTF_8),
         )
     }
@@ -781,7 +743,6 @@ class TinyModelLocalBridge(
 
     companion object {
         const val ENV_BASE_URL = "MAID_TINY_MODEL_BASE_URL"
-        const val ENV_API_KEY = "MAID_TINY_MODEL_API_KEY"
         const val ENV_GENERATE_URL = "MAID_TINY_MODEL_GENERATE_URL"
         const val ENV_HEALTH_URL = "MAID_TINY_MODEL_HEALTH_URL"
         const val ENV_MODEL_NAME = "MAID_TINY_MODEL_NAME"
@@ -797,14 +758,6 @@ class TinyModelLocalBridge(
         private val jsonParser = Json {
             ignoreUnknownKeys = true
             isLenient = true
-        }
-
-        private val secureRandom = SecureRandom()
-
-        fun generateRandomToken(): String {
-            val bytes = ByteArray(24)
-            secureRandom.nextBytes(bytes)
-            return bytes.joinToString(separator = "") { b -> "%02x".format(b) }
         }
 
         private fun parseJsonObject(rawBody: String): JsonObject? {

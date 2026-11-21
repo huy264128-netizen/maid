@@ -24,8 +24,9 @@ Manager 是一个 ToolSet。具体业务工具用 `@Tool` 注册，提交执行�
 | ProotLinuxAgentManager | executeProotLinuxTask、executeProotLinuxTaskWithLlmApi | waitLinuxTask | 专用终端、任务锁、临时凭据清理 |
 | ResearchAgentManager | executeResearchTask | waitResearchTask | 检索、阅读与来源整理 |
 | BrowserUseAgentManager | executeBrowserTask | waitBrowserTask | 应用内 WebView 标签页、导航事件、离屏画面与输入 |
+Planner 在 Android 运行时可委托 Browser Use Agent 操作公开 HTTPS 网页。每个任务建立自己的离屏浏览器，最多四个标签页，结束后释放。浏览器返回标签的 URL 和导航状态，支持按版本等待事件、使用截图像素输入，以及通过 `TimedWait` 定时挂起或启动异步计时。截图理解需要配置快速视觉模型。`searchBrowserHtml(tabId, goal)` 读取当前标签页的渲染后 HTML，并由 `FAST_CHEAP` 提取相关信息和证据，HTML 输入按快速模型上下文分配预算，并为提示和回复保留空间。WebView 单次回传限制在 256 KiB 的页面数据内，截断时会在结果中标明。
 
-Planner 在 Android 运行时可委托 Browser Use Agent 操作公开 HTTPS 网页。每个任务建立自己的离屏浏览器，最多四个标签页，结束后释放。浏览器返回标签的 URL 和导航状态，支持按版本等待事件、使用截图像素输入，以及通过 `TimedWait` 定时挂起或启动异步计时。截图理解需要配置快速视觉模型。
+
 | SearchEngineManager（`search/`） | 五类 search 工具、readWebPage、readRawPage、readRenderedWebPage、checkSearchEngines | waitSearchTask | 搜索路由、网页抓取和来源记录 |
 
 ResearchAgent 每次调研创建 SearchEngineManager。静态正文和原始响应分别由 readWebPage 和 readRawPage 读取。readRenderedWebPage 单独使用系统 WebView 渲染公开 HTTPS 页面，再用 Ksoup 提取正文。三个入口均返回任务 ID，由 waitSearchTask 取得结果。搜索次数、阅读次数和来源在实际任务执行中记录。底层 SearchEngine / SearchEngineRouter 的挂起业务 API 继续供内部和设置页使用。
@@ -41,7 +42,7 @@ val taskId = manager.executeResearchTask(topic = "主题 A")
 val result: String = manager.waitResearchTask(taskId)
 ```
 
-ChatAgent 挂载 Planner 和 Research Manager，PlannerAgent 挂载 Device、Linux 和 Research Manager。内部 Agent 只挂载其需要的下游工具，不把自己的 Manager 注册给自己。
+ChatAgent 挂载 Planner 和 Research Manager，PlannerAgent 挂载 Device、Linux 和 Research Manager。Android 运行时中，两者也挂载 Browser Use Manager。内部 Agent 只挂载其需要的下游工具，不把自己的 Manager 注册给自己。
 
 每次构造上层 Agent 的工具集时创建对应 Manager，ID 只属于同一个 Manager 实例。模型需在依赖结果、推进检查点或汇报完成前调用对应等待工具；不能把 ID 当作结论，也不能在下一轮重新创建 Manager 后继续使用旧 ID。
 

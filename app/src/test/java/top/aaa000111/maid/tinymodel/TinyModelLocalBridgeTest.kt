@@ -100,16 +100,12 @@ class TinyModelLocalBridgeTest {
     private fun httpRequest(
         method: String,
         url: String,
-        token: String? = null,
         jsonBody: String? = null,
     ): HttpResp {
         val conn = (URI(url).toURL().openConnection() as HttpURLConnection).apply {
             requestMethod = method
             connectTimeout = 5_000
             readTimeout = 10_000
-            if (token != null) {
-                setRequestProperty("Authorization", "Bearer $token")
-            }
             if (jsonBody != null) {
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json; charset=utf-8")
@@ -125,37 +121,29 @@ class TinyModelLocalBridgeTest {
     }
 
     @Test
-    fun bridgeRequiresBearerTokenAndServesHealthModelsAndGenerate() {
+    fun bridgeServesHealthModelsAndGenerateWithoutAuthorization() {
         val model = createTestTinyModel()
         val bridge = TinyModelLocalBridge(
             tinyModelProvider = { model },
-            tokenGenerator = { "local-secret-token-123" },
         ).ensureStarted()
 
         try {
             assertTrue(bridge.isRunning)
             val env = bridge.buildEnvironmentVariables()
             assertEquals("http://127.0.0.1:${bridge.port}/v1", env[TinyModelLocalBridge.ENV_BASE_URL])
-            assertEquals("local-secret-token-123", env[TinyModelLocalBridge.ENV_API_KEY])
             assertEquals("http://127.0.0.1:${bridge.port}/generate", env[TinyModelLocalBridge.ENV_GENERATE_URL])
             assertEquals("lfm2.5-350m-test", env[TinyModelLocalBridge.ENV_MODEL_NAME])
 
-            // 1. 缺少或错误 Token 必须拒绝（401）
-            val noAuth = httpRequest("GET", bridge.healthUrl, token = null)
-            assertEquals(401, noAuth.code)
-            val wrongAuth = httpRequest("GET", bridge.healthUrl, token = "wrong-token")
-            assertEquals(401, wrongAuth.code)
-
-            // 2. /health
-            val health = httpRequest("GET", bridge.healthUrl, token = bridge.authToken)
+            // 1. /health
+            val health = httpRequest("GET", bridge.healthUrl)
             assertEquals(200, health.code)
             val healthJson = json.parseToJsonElement(health.body).jsonObject
             assertEquals("ok", healthJson["status"]?.jsonPrimitive?.content)
             assertTrue(healthJson["available"]?.jsonPrimitive?.boolean == true)
             assertEquals("lfm2.5-350m-test", healthJson["model"]?.jsonPrimitive?.content)
 
-            // 3. /v1/models
-            val models = httpRequest("GET", "${bridge.baseUrl}/models", token = bridge.authToken)
+            // 2. /v1/models
+            val models = httpRequest("GET", "${bridge.baseUrl}/models")
             assertEquals(200, models.code)
             val modelsJson = json.parseToJsonElement(models.body).jsonObject
             assertEquals("list", modelsJson["object"]?.jsonPrimitive?.content)
@@ -164,11 +152,10 @@ class TinyModelLocalBridgeTest {
                 modelsJson["data"]?.jsonArray?.first()?.jsonObject?.get("id")?.jsonPrimitive?.content,
             )
 
-            // 4. POST /generate
+            // 3. POST /generate
             val genResp = httpRequest(
                 method = "POST",
                 url = bridge.generateUrl,
-                token = bridge.authToken,
                 jsonBody = """{"prompt":"hello proot","system":"be brief","max_tokens":128,"temperature":0.1}""",
             )
             assertEquals(200, genResp.code)
@@ -195,7 +182,6 @@ class TinyModelLocalBridgeTest {
 
         val bridge = TinyModelLocalBridge(
             tinyModelProvider = { currentModel },
-            tokenGenerator = { "tok-stream-test" },
         ).ensureStarted()
 
         try {
@@ -203,7 +189,6 @@ class TinyModelLocalBridgeTest {
             val nonStream = httpRequest(
                 method = "POST",
                 url = "${bridge.baseUrl}/chat/completions",
-                token = bridge.authToken,
                 jsonBody = """
                     {
                       "model": "model-a",
@@ -227,7 +212,6 @@ class TinyModelLocalBridgeTest {
             val streamed = httpRequest(
                 method = "POST",
                 url = "${bridge.baseUrl}/chat/completions",
-                token = bridge.authToken,
                 jsonBody = """
                     {
                       "messages": [{"role": "user", "content": "hi"}],
@@ -254,7 +238,6 @@ class TinyModelLocalBridgeTest {
             val afterSwap = httpRequest(
                 method = "POST",
                 url = bridge.generateUrl,
-                token = bridge.authToken,
                 jsonBody = """{"prompt":"swapped"}""",
             )
             assertEquals(200, afterSwap.code)
@@ -267,11 +250,10 @@ class TinyModelLocalBridgeTest {
             val unavailable = httpRequest(
                 method = "POST",
                 url = bridge.generateUrl,
-                token = bridge.authToken,
                 jsonBody = """{"prompt":"hello"}""",
             )
             assertEquals(503, unavailable.code)
-            val healthUnavailable = httpRequest("GET", bridge.healthUrl, token = bridge.authToken)
+            val healthUnavailable = httpRequest("GET", bridge.healthUrl)
             assertEquals(200, healthUnavailable.code)
             assertFalse(
                 json.parseToJsonElement(healthUnavailable.body).jsonObject["available"]!!.jsonPrimitive.boolean,
@@ -294,7 +276,7 @@ class TinyModelLocalBridgeTest {
         val cliContent = cliFile.readText(StandardCharsets.UTF_8)
         assertTrue(cliContent.contains(TermuxProotRuntime.MAID_TINY_CLI_VERSION_MARKER))
         assertTrue(cliContent.contains("MAID_TINY_MODEL_GENERATE_URL"))
-        assertTrue(cliContent.contains("MAID_TINY_MODEL_API_KEY"))
+        assertFalse(cliContent.contains("MAID_TINY_MODEL_API_KEY"))
 
         val prootPrompt = ProotLinuxAgent.buildEffectiveSystemPrompt(
             baseSystemPrompt = ProotLinuxAgent.DEFAULT_SYSTEM_PROMPT,
@@ -319,7 +301,6 @@ class TinyModelLocalBridgeTest {
             )
             val bridge = TinyModelLocalBridge(
                 tinyModelProvider = { model },
-                tokenGenerator = { "cli-e2e-token" },
             ).ensureStarted()
             try {
                 // 1. 语法检查 sh -n
@@ -336,6 +317,7 @@ class TinyModelLocalBridgeTest {
                     "summarize",
                     "-m",
                     "64",
+                    "--stdin",
                     "header",
                 ).apply {
                     environment().putAll(bridge.buildEnvironmentVariables())

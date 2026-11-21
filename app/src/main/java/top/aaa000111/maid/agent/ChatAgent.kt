@@ -245,6 +245,9 @@ class ChatAgent(
                         extra = ResearchAgentManager(researchAgent).asToolRegistry(),
                     )
                 }
+                AppRuntime.createBrowserUseAgentManager()?.let { browserManager ->
+                    effectiveToolRegistry = mergeTools(effectiveToolRegistry, browserManager.asToolRegistry())
+                }
                 val directImageToolSet = if (useDirectImageInput) {
                     DirectImageReadToolSet(
                         imageAttachmentResolver = imageAttachmentResolver ?: VisionToolSet::resolveImageAttachment,

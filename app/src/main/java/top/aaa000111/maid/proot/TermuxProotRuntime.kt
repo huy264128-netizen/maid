@@ -80,15 +80,15 @@ object TermuxProotRuntime {
 
     private const val PROOT_TMP_DIR_NAME = "proot_tmp"
     const val ROOTFS_INIT_MARKER_FILE_NAME = ".maid_rootfs_initialized"
-    internal const val MAID_TINY_CLI_VERSION_MARKER = "# Maid TinyModel CLI v1"
+    internal const val MAID_TINY_CLI_VERSION_MARKER = "# Maid TinyModel CLI v3"
 
     internal val MAID_TINY_CLI_SCRIPT: String = """
         #!/bin/sh
-        # Maid TinyModel CLI v1
+        $MAID_TINY_CLI_VERSION_MARKER
         set -eu
 
-        if [ -z "${'$'}{MAID_TINY_MODEL_GENERATE_URL:-}" ] || [ -z "${'$'}{MAID_TINY_MODEL_API_KEY:-}" ]; then
-          echo "maid-tiny: MAID_TINY_MODEL_GENERATE_URL / MAID_TINY_MODEL_API_KEY is not set." >&2
+        if [ -z "${'$'}{MAID_TINY_MODEL_GENERATE_URL:-}" ]; then
+          echo "maid-tiny: MAID_TINY_MODEL_GENERATE_URL is not set." >&2
           exit 1
         fi
 
@@ -97,6 +97,7 @@ object TermuxProotRuntime {
         TEMPERATURE=""
         RAW_OUTPUT="0"
         HEALTH_ONLY="0"
+        READ_STDIN="0"
 
         while [ ${'$'}# -gt 0 ]; do
           case "${'$'}1" in
@@ -118,9 +119,12 @@ object TermuxProotRuntime {
             --health)
               HEALTH_ONLY="1"
               ;;
+            --stdin)
+              READ_STDIN="1"
+              ;;
             -h|--help)
-              echo "Usage: maid-tiny [-s SYSTEM] [-m MAX_TOKENS] [-t TEMP] [--raw] [--health] [PROMPT...]"
-              echo "Reads extra input from stdin when piped."
+              echo "Usage: maid-tiny [-s SYSTEM] [-m MAX_TOKENS] [-t TEMP] [--raw] [--health] [--stdin] [PROMPT...]"
+              echo "Reads piped stdin when no prompt is given. Use --stdin to combine stdin with prompt arguments."
               exit 0
               ;;
             --)
@@ -142,11 +146,8 @@ object TermuxProotRuntime {
           HEALTH_URL="${'$'}{MAID_TINY_MODEL_HEALTH_URL:-${'$'}{MAID_TINY_MODEL_BASE_URL%/v1}/health}"
           if command -v python3 >/dev/null 2>&1; then
             exec python3 -c '
-        import os, sys, urllib.request, urllib.error
-        req = urllib.request.Request(
-            sys.argv[1],
-            headers={"Authorization": "Bearer " + os.environ["MAID_TINY_MODEL_API_KEY"]},
-        )
+        import sys, urllib.request, urllib.error
+        req = urllib.request.Request(sys.argv[1])
         try:
             with urllib.request.urlopen(req, timeout=15) as resp:
                 sys.stdout.write(resp.read().decode("utf-8", "replace") + "\n")
@@ -155,7 +156,7 @@ object TermuxProotRuntime {
             sys.exit(1)
         ' "${'$'}HEALTH_URL"
           elif command -v curl >/dev/null 2>&1; then
-            exec curl -fsS -H "Authorization: Bearer ${'$'}MAID_TINY_MODEL_API_KEY" "${'$'}HEALTH_URL"
+            exec curl -fsS "${'$'}HEALTH_URL"
           else
             echo "maid-tiny: requires python3 or curl." >&2
             exit 1
@@ -164,7 +165,8 @@ object TermuxProotRuntime {
 
         ARG_PROMPT="${'$'}*"
         STDIN_DATA=""
-        if [ ! -t 0 ]; then
+        # The persistent Agent shell has non-TTY stdin even without a pipeline.
+        if [ "${'$'}READ_STDIN" = "1" ] || { [ -z "${'$'}ARG_PROMPT" ] && [ ! -t 0 ]; }; then
           STDIN_DATA="${'$'}(cat)"
         fi
 
@@ -209,7 +211,6 @@ object TermuxProotRuntime {
             data=data,
             headers={
                 "Content-Type": "application/json",
-                "Authorization": "Bearer " + os.environ["MAID_TINY_MODEL_API_KEY"],
             },
             method="POST",
         )
@@ -248,7 +249,6 @@ object TermuxProotRuntime {
           BODY="${'$'}BODY}"
           RESP="${'$'}(curl -fsS -X POST \
             -H "Content-Type: application/json" \
-            -H "Authorization: Bearer ${'$'}MAID_TINY_MODEL_API_KEY" \
             -d "${'$'}BODY" \
             "${'$'}MAID_TINY_MODEL_GENERATE_URL")"
           if [ "${'$'}RAW_OUTPUT" = "1" ]; then
