@@ -34,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -50,6 +51,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import top.aaa000111.maid.R
 import top.aaa000111.maid.androidtool.AndroidPrivilege
 import top.aaa000111.maid.provider.LlmProvider
+import top.aaa000111.maid.settings.PersonaConfig
 import top.aaa000111.maid.ui.theme.MaidTheme
 
 @Composable
@@ -59,6 +61,10 @@ fun ChatScreen(
     onOpenTerminal: () -> Unit = {},
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val persona by viewModel.personaConfig.collectAsStateWithLifecycle(initialValue = PersonaConfig())
+    val presets by viewModel.personaPresets.collectAsStateWithLifecycle()
+    val switchingPersona by viewModel.isSwitchingPersona.collectAsStateWithLifecycle()
+    LaunchedEffect(viewModel) { viewModel.refreshPersonaPresets() }
 
     ChatScreenContent(
         uiState = uiState,
@@ -77,6 +83,17 @@ fun ChatScreen(
         onConfirmPermissionRequest = viewModel::confirmPermissionRequest,
         onRequestPrivilege = viewModel::requestPrivilegeFromCard,
         onOpenFile = viewModel::openFile,
+        onSelectModelGroup = viewModel::selectModelGroup,
+        isSwitchingPersona = switchingPersona,
+        personaControl = {
+            ChatPersonaPicker(
+                presets = presets,
+                persona = persona,
+                enabled = !uiState.isGenerating && !switchingPersona,
+                onOpen = viewModel::refreshPersonaPresets,
+                onSelect = viewModel::selectPersonaPreset,
+            )
+        },
     )
 }
 
@@ -103,6 +120,9 @@ fun ChatScreenContent(
     onRemoveImageUri: (String) -> Unit = {},
     onConfirmPermissionRequest: (String) -> Unit = {},
     onRequestPrivilege: (AndroidPrivilege) -> Unit = {},
+    onSelectModelGroup: (String) -> Unit = {},
+    isSwitchingPersona: Boolean = false,
+    personaControl: @Composable () -> Unit = {},
     onOpenFile: (attachmentId: String?, fileName: String, uri: String, fallbackUri: String) -> Unit = { _, _, _, _ -> },
 ) {
     var showSessionSheet by rememberSaveable { mutableStateOf(false) }
@@ -192,6 +212,16 @@ fun ChatScreenContent(
                 onRemoveImageUri = onRemoveImageUri,
                 onSendClick = onSendMessage,
                 onStopClick = onStopGenerating,
+                isModelUpdating = uiState.modelGroupControls.isSwitching || isSwitchingPersona,
+                personaControl = personaControl,
+                modelControls = {
+                    ChatModelControls(
+                        state = uiState.modelGroupControls,
+                        enabled = !uiState.isGenerating,
+                        onSelectGroup = onSelectModelGroup,
+                        onOpenSettings = onOpenSettings,
+                    )
+                },
             )
         }
     }

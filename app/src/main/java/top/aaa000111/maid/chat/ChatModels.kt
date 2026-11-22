@@ -1,6 +1,7 @@
 package top.aaa000111.maid.chat
 
 import top.aaa000111.maid.androidtool.AndroidPrivilege
+import top.aaa000111.maid.provider.ModelGroups
 import top.aaa000111.maid.provider.LlmProvider
 import top.aaa000111.maid.settings.ModelOutputDisplayMode
 import java.util.UUID
@@ -249,6 +250,12 @@ sealed interface ChatSessionState {
     }
 }
 
+data class ChatModelGroupControlsState(
+    val groups: ModelGroups = ModelGroups(),
+    val isSwitching: Boolean = false,
+    val switchFailed: Boolean = false,
+)
+
 data class ChatUiState(
     val sessions: List<ChatSession.Snapshot> = emptyList(),
     val currentSessionId: String = "",
@@ -256,6 +263,7 @@ data class ChatUiState(
     val pendingFileUris: List<String> = emptyList(),
     val pendingImageUris: List<String> = emptyList(),
     val isModelConfigured: Boolean = false,
+    val modelGroupControls: ChatModelGroupControlsState = ChatModelGroupControlsState(),
     val isGenerating: Boolean = false,
     val modelOutputDisplayMode: ModelOutputDisplayMode = ModelOutputDisplayMode.SHOW_ALL,
 ) {

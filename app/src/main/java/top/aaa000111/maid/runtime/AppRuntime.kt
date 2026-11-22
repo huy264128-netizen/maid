@@ -23,6 +23,7 @@ import top.aaa000111.maid.provider.ChatGptAuthRepository
 import top.aaa000111.maid.provider.LlmKeyRepository
 import top.aaa000111.maid.provider.LlmProvider
 import top.aaa000111.maid.provider.LlmProviderRegistry
+import top.aaa000111.maid.provider.withReasoning
 import top.aaa000111.maid.provider.ModelConfigRepository
 import top.aaa000111.maid.provider.ModelRole
 import top.aaa000111.maid.provider.ProviderAvailability
@@ -52,6 +53,7 @@ import top.aaa000111.maid.tinymodel.TinyModelConfigRepository
 import top.aaa000111.maid.tinymodel.TinyModelFileStore
 import top.aaa000111.maid.tinymodel.TinyModelLocalBridge
 import top.aaa000111.maid.tinymodel.TinyModelSelection
+import java.io.File
 import java.nio.file.Path
 import java.util.concurrent.ConcurrentHashMap
 
@@ -324,8 +326,84 @@ object AppRuntime {
         }
     }
 
+    @Volatile
+    private var sharedMaidLangTaskStore: MaidLangTaskStore? = null
+
+    @Volatile
+    private var sharedAlarmScheduler: AlarmScheduler? = null
+
+    @Volatile
+    private var sharedWorkScheduler: WorkScheduler? = null
+
+    @Volatile
+    private var sharedScheduledTaskExecutor: ScheduledTaskExecutor? = null
+
+    /** 获取应用级已编译 MaidLang 任务仓库（需先调用 [init]）。 */
+    fun getMaidLangTaskStore(): MaidLangTaskStore {
+        sharedMaidLangTaskStore?.let { return it }
+        return synchronized(this) {
+            sharedMaidLangTaskStore ?: run {
+                val ctx = requireNotNull(appContext) {
+                    "AppRuntime must be initialized via init(context) before accessing MaidLangTaskStore"
+                }
+                MaidLangTaskStore(File(ctx.filesDir, MaidLangTaskStore.TASKS_DIR_NAME)).also {
+                    sharedMaidLangTaskStore = it
+                }
+            }
+        }
+    }
+
+    /** 获取应用级 [AlarmScheduler]（需先调用 [init]）。 */
+    fun getAlarmScheduler(): AlarmScheduler {
+        sharedAlarmScheduler?.let { return it }
+        return synchronized(this) {
+            sharedAlarmScheduler ?: run {
+                val ctx = requireNotNull(appContext) {
+                    "AppRuntime must be initialized via init(context) before accessing AlarmScheduler"
+                }
+                AndroidAlarmScheduler(ctx).also { sharedAlarmScheduler = it }
+            }
+        }
+    }
+
+    /** 获取应用级 [WorkScheduler]（需先调用 [init]）。 */
+    fun getWorkScheduler(): WorkScheduler {
+        sharedWorkScheduler?.let { return it }
+        return synchronized(this) {
+            sharedWorkScheduler ?: run {
+                val ctx = requireNotNull(appContext) {
+                    "AppRuntime must be initialized via init(context) before accessing WorkScheduler"
+                }
+                AndroidWorkScheduler(ctx).also { sharedWorkScheduler = it }
+            }
+        }
+    }
+
+    /** 获取应用级定时任务执行器（需先调用 [init]）。 */
+    fun getScheduledTaskExecutor(): ScheduledTaskExecutor {
+        sharedScheduledTaskExecutor?.let { return it }
+        return synchronized(this) {
+            sharedScheduledTaskExecutor ?: ScheduledTaskExecutor(
+                taskStoreProvider = ::getMaidLangTaskStore,
+            ).also { sharedScheduledTaskExecutor = it }
+        }
+    }
+
     internal fun createBrowserUseAgentManager() =
         appContext?.let { top.aaa000111.maid.agent.BrowserUseAgentManager(it) }
+
+    internal fun createScheduledTaskToolSet(): top.aaa000111.maid.agent.ScheduledTaskToolSet? {
+        if (appContext == null) return null
+        return top.aaa000111.maid.agent.ScheduledTaskToolSet(
+            taskStore = getMaidLangTaskStore(),
+            alarmGateway = DefaultScheduledAlarmGateway(getAlarmScheduler()),
+            workGateway = DefaultScheduledWorkGateway(getWorkScheduler()),
+        )
+    }
+
+    internal fun createAlarmClockToolSet(): top.aaa000111.maid.androidtool.AlarmClockToolSet? {
+        return appContext?.let { top.aaa000111.maid.androidtool.AlarmClockToolSet(it) }
+    }
 
     /** 刷新已持久化的搜索配置缓存，并清空所有搜索引擎的可用性探测缓存。 */
     suspend fun syncSearchConfig() {
@@ -362,6 +440,7 @@ object AppRuntime {
             DeviceActionAgent.init(appCtx)
             ChatSessionRepository.init(appCtx)
             LearningRuntime.init(appCtx)
+            MaidLangNativeRegistry.init(appCtx)
             ChatBackgroundRuntime.init(appCtx)
             TermuxProotRuntime.init(appCtx)
             ProotSearXngManager.init(appCtx)
@@ -427,6 +506,10 @@ object AppRuntime {
             ChatSessionRepository.resetForTest()
                 ChatBackgroundRuntime.resetForTest()
             LearningRuntime.resetForTest()
+            sharedMaidLangTaskStore = null
+            sharedAlarmScheduler = null
+            sharedWorkScheduler = null
+            sharedScheduledTaskExecutor = null
             initialized = true
         }
     }
@@ -434,6 +517,10 @@ object AppRuntime {
     internal fun resetForTest() {
         synchronized(this) {
             appContext = null
+            sharedMaidLangTaskStore = null
+            sharedAlarmScheduler = null
+            sharedWorkScheduler = null
+            sharedScheduledTaskExecutor = null
             providerAvailabilityObserverJob?.cancel()
             providerAvailabilityObserverJob = null
             clearAllCachedExecutors()
@@ -569,7 +656,7 @@ object AppRuntime {
             }
 
             return ChatModelBinding(
-                executor = executor,
+                executor = selection.withReasoning(executor),
                 model = LlmProviderRegistry.resolveKoogModel(
                     provider = provider,
                     modelId = modelId,

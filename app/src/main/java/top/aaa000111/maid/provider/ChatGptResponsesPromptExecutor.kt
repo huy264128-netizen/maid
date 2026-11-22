@@ -553,6 +553,14 @@ class ChatGptResponsesPromptExecutor(
                 put("model", JsonPrimitive(model.id.trim()))
                 put("store", JsonPrimitive(false))
                 put("stream", JsonPrimitive(true))
+                val reasoning = prompt.params.additionalProperties?.get("reasoning") as? JsonObject
+                val effort = (reasoning?.get("effort") as? JsonPrimitive)?.contentOrNull
+                if (effort != null && ModelReasoningEffort.entries.any {
+                        it != ModelReasoningEffort.DEFAULT && it.id == effort
+                    }
+                ) {
+                    put("reasoning", buildJsonObject { put("effort", JsonPrimitive(effort)) })
+                }
                 if (instructions != null) {
                     put("instructions", JsonPrimitive(instructions))
                 }

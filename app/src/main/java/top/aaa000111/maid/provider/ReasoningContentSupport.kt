@@ -89,7 +89,8 @@ internal object ReasoningContentSupport {
 
             val isStreamingRequest = rawBody?.let(::isStreamingChatRequest) ?: false
             if (rawBody != null) {
-                val rewritten = injectReasoningIntoRequest(rawBody, sharedCache)
+                val normalized = normalizeReasoningRequest(rawBody)
+                val rewritten = injectReasoningIntoRequest(normalized ?: rawBody, sharedCache) ?: normalized
                 if (rewritten != null) {
                     val contentType = (request.body as? OutgoingContent)?.contentType
                         ?: ContentType.Application.Json

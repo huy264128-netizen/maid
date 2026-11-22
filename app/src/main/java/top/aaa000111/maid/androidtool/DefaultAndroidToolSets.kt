@@ -12,6 +12,7 @@ object DefaultAndroidToolSets {
             InputToolSet(),
             KeyInputToolSet(),
             AudioToolSet(context),
+            AlarmClockToolSet(context),
             ScreenToolSet(context),
             ShellToolSet(),
             AppControlToolSet(),

@@ -3,6 +3,7 @@ package top.aaa000111.maid.provider
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
@@ -103,6 +104,14 @@ object ModelConfigRepository {
 
     suspend fun getAllConfigs(): Map<ModelRole, RoleModelSelection> = withContext(Dispatchers.IO) {
         readConfigsFromPreferences(requireContext().modelConfigDataStore.data.first())
+    }
+
+    fun observeModelHistory(): Flow<Map<ModelRole, List<RoleModelSelection>>> {
+        return requireContext().modelConfigDataStore.data.map { prefs ->
+            ModelRole.entries.associateWith { role ->
+                RoleModelHistory.decode(prefs[historyPrefKey(role)])
+            }
+        }.flowOn(Dispatchers.IO)
     }
 
     fun observeCustomBaseUrl(): Flow<String> {
@@ -234,72 +243,104 @@ object ModelConfigRepository {
         }
     }
 
-    suspend fun saveAllConfigs(configs: Map<ModelRole, RoleModelSelection>) {
+    fun observeModelGroups(): Flow<ModelGroups> =
+        requireContext().modelConfigDataStore.data.map(::readModelGroups).flowOn(Dispatchers.IO)
+
+    suspend fun activateModelGroup(id: String) {
+        requireContext().modelConfigDataStore.edit { prefs ->
+            val state = readModelGroups(prefs)
+            if (id == state.activeId) return@edit
+            val group = state.groups.firstOrNull { it.id == id } ?: error("Unknown model group")
+            ModelRole.entries.forEach { role ->
+                writeRoleConfig(prefs, role, group.selections[role] ?: RoleModelSelection())
+            }
+            prefs[groupsKey] = ModelGroupJson.encode(state.groups)
+            prefs[activeGroupKey] = id
+        }
+    }
+
+    private fun readModelGroups(prefs: Preferences): ModelGroups {
+        val activeId = prefs[activeGroupKey] ?: ModelConfigGroup.DEFAULT_ID
+        val groups = ModelGroupJson.decode(prefs[groupsKey])
+        val active = ModelConfigGroup(
+            id = activeId,
+            name = groups.firstOrNull { it.id == activeId }?.name.orEmpty(),
+            selections = readConfigsFromPreferences(prefs),
+        )
+        return ModelGroups(groups.replaceGroup(active), activeId)
+    }
+
+    suspend fun saveAllConfigs(
+        configs: Map<ModelRole, RoleModelSelection>,
+        histories: Map<ModelRole, List<RoleModelSelection>> = emptyMap(),
+        newGroupName: String? = null,
+        expectedActiveGroupId: String? = null,
+    ) {
         withContext(Dispatchers.IO) {
             requireContext().modelConfigDataStore.edit { prefs ->
-                ModelRole.entries.forEach { role ->
-                    val selection = configs[role] ?: RoleModelSelection()
-                    val pKey = providerPrefKey(role)
-                    val mKey = modelPrefKey(role)
-                    val cKey = customProviderIdPrefKey(role)
-                    val ctxKey = metaContextLengthPrefKey(role)
-                    val visionKey = metaVisionPrefKey(role)
-                    val toolsKey = metaToolsPrefKey(role)
-                    val reasoningKey = metaReasoningPrefKey(role)
-
-                    val provider = selection.provider
-                    val modelId = selection.normalizedModelId
-                    if (provider != null && modelId != null) {
-                        prefs[pKey] = provider.id
-                        prefs[mKey] = modelId
-                        val customId = selection.normalizedCustomProviderId
-                        if (customId != null && customId != CustomProviderProfile.DEFAULT_ID) {
-                            prefs[cKey] = customId
-                        } else {
-                            prefs.remove(cKey)
-                        }
-                        val meta = selection.modelMetadata
-                        if (meta?.contextLength != null && meta.contextLength > 0L) {
-                            prefs[ctxKey] = meta.contextLength
-                        } else {
-                            prefs.remove(ctxKey)
-                        }
-                        if (meta?.supportsVision != null) {
-                            prefs[visionKey] = meta.supportsVision
-                        } else {
-                            prefs.remove(visionKey)
-                        }
-                        if (meta?.supportsTools != null) {
-                            prefs[toolsKey] = meta.supportsTools
-                        } else {
-                            prefs.remove(toolsKey)
-                        }
-                        if (meta?.supportsReasoning != null) {
-                            prefs[reasoningKey] = meta.supportsReasoning
-                        } else {
-                            prefs.remove(reasoningKey)
-                        }
-                    } else {
-                        prefs.remove(pKey)
-                        prefs.remove(mKey)
-                        prefs.remove(cKey)
-                        prefs.remove(ctxKey)
-                        prefs.remove(visionKey)
-                        prefs.remove(toolsKey)
-                        prefs.remove(reasoningKey)
-                    }
+                val state = readModelGroups(prefs)
+                check(expectedActiveGroupId == null || expectedActiveGroupId == state.activeId)
+                val group = if (newGroupName != null) {
+                    val name = newGroupName.trim()
+                    require(name.isNotEmpty() && state.groups.none { it.name.equals(name, ignoreCase = true) })
+                    ModelConfigGroup(java.util.UUID.randomUUID().toString(), name, configs)
+                } else {
+                    state.groups.first { it.id == state.activeId }.copy(selections = configs)
                 }
+                ModelRole.entries.forEach { role ->
+                    writeRoleConfig(prefs, role, configs[role] ?: RoleModelSelection(), histories[role].orEmpty())
+                }
+                prefs[groupsKey] = ModelGroupJson.encode(state.groups.replaceGroup(group))
+                prefs[activeGroupKey] = group.id
             }
         }
+    }
+
+    internal fun writeRoleConfig(
+        prefs: MutablePreferences,
+        role: ModelRole,
+        selection: RoleModelSelection,
+        historyOverrides: List<RoleModelSelection> = emptyList(),
+    ) {
+        val previous = readConfigsFromPreferences(prefs).getValue(role)
+        var history = RoleModelHistory.remember(RoleModelHistory.decode(prefs[historyPrefKey(role)]), previous)
+        historyOverrides.asReversed().forEach { history = RoleModelHistory.remember(history, it) }
+        history = RoleModelHistory.remember(history, selection)
+        prefs[historyPrefKey(role)] = RoleModelHistory.encode(history)
+        val provider = selection.provider
+        if (provider != null) prefs[providerPrefKey(role)] = provider.id
+        else prefs.remove(providerPrefKey(role))
+        selection.normalizedModelId?.takeIf { provider != null }?.let {
+            prefs[modelPrefKey(role)] = it
+        } ?: prefs.remove(modelPrefKey(role))
+        val customId = selection.normalizedCustomProviderId
+        if (customId != null && customId != CustomProviderProfile.DEFAULT_ID) {
+            prefs[customProviderIdPrefKey(role)] = customId
+        } else prefs.remove(customProviderIdPrefKey(role))
+        if (provider != null) prefs[reasoningEffortPrefKey(role)] = selection.reasoningEffort.id
+        else prefs.remove(reasoningEffortPrefKey(role))
+        val meta = selection.modelMetadata?.takeIf { selection.isComplete }
+        meta?.contextLength?.takeIf { it > 0 }?.let { prefs[metaContextLengthPrefKey(role)] = it }
+            ?: prefs.remove(metaContextLengthPrefKey(role))
+        meta?.supportsVision?.let { prefs[metaVisionPrefKey(role)] = it }
+            ?: prefs.remove(metaVisionPrefKey(role))
+        meta?.supportsTools?.let { prefs[metaToolsPrefKey(role)] = it }
+            ?: prefs.remove(metaToolsPrefKey(role))
+        meta?.supportsReasoning?.let { prefs[metaReasoningPrefKey(role)] = it }
+            ?: prefs.remove(metaReasoningPrefKey(role))
     }
 
     suspend fun clearAll() {
         withContext(Dispatchers.IO) {
             requireContext().modelConfigDataStore.edit { prefs ->
+                prefs.remove(groupsKey)
+                prefs.remove(activeGroupKey)
                 ModelRole.entries.forEach { role ->
                     prefs.remove(providerPrefKey(role))
                     prefs.remove(modelPrefKey(role))
                     prefs.remove(customProviderIdPrefKey(role))
+                    prefs.remove(reasoningEffortPrefKey(role))
+                    prefs.remove(historyPrefKey(role))
                     prefs.remove(metaContextLengthPrefKey(role))
                     prefs.remove(metaVisionPrefKey(role))
                     prefs.remove(metaToolsPrefKey(role))
@@ -309,14 +350,14 @@ object ModelConfigRepository {
         }
     }
 
-    private fun readConfigsFromPreferences(prefs: Preferences): Map<ModelRole, RoleModelSelection> {
+    internal fun readConfigsFromPreferences(prefs: Preferences): Map<ModelRole, RoleModelSelection> {
         return ModelRole.entries.associateWith { role ->
             val rawProvider = prefs[providerPrefKey(role)]
             val provider = rawProvider?.let { id ->
                 LlmProvider.entries.firstOrNull { it.id == id }
             }
             val modelId = prefs[modelPrefKey(role)]?.trim()?.takeIf { it.isNotEmpty() }
-            if (provider != null && modelId != null) {
+            if (provider != null) {
                 val customProviderId = if (provider == LlmProvider.CUSTOM) {
                     prefs[customProviderIdPrefKey(role)]?.trim()?.takeIf { it.isNotEmpty() }
                         ?: CustomProviderProfile.DEFAULT_ID
@@ -334,6 +375,7 @@ object ModelConfigRepository {
                     modelId = modelId,
                     customProviderId = customProviderId,
                     modelMetadata = meta,
+                    reasoningEffort = ModelReasoningEffort.fromId(prefs[reasoningEffortPrefKey(role)]),
                 )
             } else {
                 RoleModelSelection()
@@ -397,6 +439,15 @@ object ModelConfigRepository {
 
     private fun customProviderIdPrefKey(role: ModelRole) =
         stringPreferencesKey("${role.keyPrefix}_custom_provider_id")
+
+    private val groupsKey = stringPreferencesKey("model_groups_json")
+    private val activeGroupKey = stringPreferencesKey("active_model_group_id")
+
+    private fun historyPrefKey(role: ModelRole) =
+        stringPreferencesKey("${role.keyPrefix}_selection_history")
+
+    private fun reasoningEffortPrefKey(role: ModelRole) =
+        stringPreferencesKey("${role.keyPrefix}_reasoning_effort")
 
     private fun metaContextLengthPrefKey(role: ModelRole) =
         longPreferencesKey("${role.keyPrefix}_meta_context_length")

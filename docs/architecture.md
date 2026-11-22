@@ -39,6 +39,20 @@ flowchart TD
 
 [AppRuntime.kt](../app/src/main/java/top/aaa000111/maid/runtime/AppRuntime.kt) 是应用级运行态组合入口，负责仓储与管理器初始化、四角色模型绑定和缓存、端侧模型、搜索共享实例及资源释放。当前采用显式初始化、仓储单例与可注入依赖的组合方式；新功能应先沿用这些边界。
 
+## MaidLang 脚本核心
+
+`:app` 编入 [MaidLang 的 Kotlin 核心](../third_party/maidlang/README.md)，可在应用内解析脚本、解释 AST 或编译字节码（含 `BytecodeFile` 编解码）并在 VM 执行。应用级单例 [MaidLangNativeRegistry](../app/src/main/java/top/aaa000111/maid/runtime/MaidLangNativeRegistry.kt) 预注册内置 Android 工具集对应的原生函数（记录所属 `toolsetId` 与候选可用权限组）、维护权限组配置与 `external fun` 声明，并通过单次 `lexer` 扫描实现源码缺失工具集检查（`check`），可按需向 `Interpreter` 与 `VM` 提供隔离的 `NativeRegistry` 快照。
+
+## 系统任务调度
+
+- [AlarmScheduler](../app/src/main/java/top/aaa000111/maid/runtime/AlarmScheduler.kt) 按墙钟时间安排一次系统广播。调用方传入应用内已在 Manifest 注册的接收器、稳定 ID 和可选参数。同一接收器和 ID 可替换或取消，接收器可从 `EXTRA_ALARM_ID` 读取 ID。系统可能延迟投递，设备重启后需重新登记。接收器宜声明为不导出，耗时工作可交给 WorkManager。
+- [WorkScheduler](../app/src/main/java/top/aaa000111/maid/runtime/WorkScheduler.kt) 按名称提交一次性或周期性 `WorkRequest`，也可观察或取消。调用方在请求中声明 Worker、参数和执行约束，重试由 Worker 返回结果配置，冲突策略由调用方选择。WorkManager 负责持久化和系统重调度，周期任务的最短间隔为 15 分钟。
+- [MaidLangTaskStore](../app/src/main/java/top/aaa000111/maid/runtime/MaidLangTaskStore.kt) 负责编译 MaidLang 源码（自动补充未显式声明的内置原生函数 `external fun` 声明并校验权限）、以 `.mlbc` 字节码 + `.json` 元数据持久化到私有目录并返回 `taskId`，以及按 `taskId` 在权限过滤后的 MaidLang VM 中执行。
+- [ScheduledTaskExecution.kt](../app/src/main/java/top/aaa000111/maid/runtime/ScheduledTaskExecution.kt) 提供统一的两种触发载荷（启动带提示词的新对话会话、按 `taskId` 执行已编译 MaidLang 脚本）、[ScheduledTaskExecutor](../app/src/main/java/top/aaa000111/maid/runtime/ScheduledTaskExecution.kt)、[ScheduledTaskWorker](../app/src/main/java/top/aaa000111/maid/runtime/ScheduledTaskExecution.kt) 与不导出的 [ScheduledAlarmReceiver](../app/src/main/java/top/aaa000111/maid/runtime/ScheduledTaskExecution.kt)（收到广播后立即移交 WorkManager 异步执行）。
+- [ScheduledTaskToolSet](../app/src/main/java/top/aaa000111/maid/agent/ScheduledTaskToolSet.kt) 将 `makeTask`、内置声明/已编译任务查询以及 AlarmManager / WorkManager 定时调度与取消暴露为 Koog `@Tool`，挂载在 `ChatAgent` 与 `PlannerAgent`。
+
+运行中的聊天仍由聊天调度器管理。
+
 ## 聊天与生命周期
 
 | 入口 | 职责 |
@@ -100,7 +114,8 @@ Planner、DeviceAction 与 ProotLinux 的模型绑定优先使用复杂规划角
 代码位于 `androidtool/`、`shizuku/` 与 `accessibility/`。
 
 - `AndroidToolSet.requiredPrivileges` 声明支持的权限集合：默认满足其中任意一项即可；空集合表示无需特殊权限。
-- `DefaultAndroidToolSets` 目前注册十组工具，覆盖输入、屏幕、Shell、应用、窗口、Root 系统、设备策略、文件、使用情况与系统设置。
+- `DefaultAndroidToolSets` 注册内置工具集，覆盖输入、按键、音量、手机系统闹钟（`AlarmClockToolSet`，基于 Android `AlarmClock` Intent）、屏幕、Shell、应用、窗口、Root 系统、设备策略、文件、使用情况与系统设置。
+- `AlarmClockToolSet` 同时独立挂载到 `ChatAgent` 与 `PlannerAgent`，供直接调用手机自带时钟应用设置闹钟/倒计时、查看列表及关闭/延后响铃闹钟。
 - `AndroidToolsetDispatcher` 按权限分发工具，具体执行通过现有后端处理。
 - `ToolsetPermissionToolSet` 与会话授权流程配合；工具集可注册不意味着其中每种操作都具备相同后端能力。
 - Shizuku 的 Binder 与 UserService 细节见 [Shizuku 文档](shizuku.md)。
@@ -142,6 +157,7 @@ Linux Agent 建议使用 `/root/<session id>/` 工作目录，但代码明确允
 | Linux 文件系统 | `filesDir/rootfs/` |
 | 自定义初始化归档 | `filesDir/rootfs_init/` |
 | 解包或导入的端侧模型 | `filesDir/tiny_models/` |
+| 已编译 MaidLang 任务 | `filesDir/maidlang_tasks/`（`.mlbc` 与 `.json`） |
 | API Key 与 OAuth 敏感数据 | `SecureKeyStorage`，Tink AES256_GCM 加密后存入 DataStore |
 
 聊天历史、附件和 rootfs 不因此自动获得凭据存储相同的加密保护。模型请求、搜索与设备工具的数据流需要分别评估。

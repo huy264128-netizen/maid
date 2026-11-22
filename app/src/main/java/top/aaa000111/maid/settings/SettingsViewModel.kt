@@ -33,10 +33,14 @@ import top.aaa000111.maid.provider.LlmKeyRepository
 import top.aaa000111.maid.provider.LlmModelOption
 import top.aaa000111.maid.provider.LlmProvider
 import top.aaa000111.maid.provider.LlmProviderRegistry
+import top.aaa000111.maid.provider.ModelGroups
 import top.aaa000111.maid.provider.ModelConfigRepository
 import top.aaa000111.maid.provider.ModelProviderTarget
+import top.aaa000111.maid.provider.ModelReasoningEffort
+import top.aaa000111.maid.provider.availableReasoningEfforts
 import top.aaa000111.maid.provider.ModelRole
 import top.aaa000111.maid.provider.ProviderAvailability
+import top.aaa000111.maid.provider.RoleModelHistory
 import top.aaa000111.maid.provider.RoleModelSelection
 import java.util.UUID
 import top.aaa000111.maid.runtime.AppRuntime
@@ -82,6 +86,8 @@ data class SettingsUiState(
     val chatGptAuthState: ChatGptAuthState = ChatGptAuthState(),
     val isBusy: Boolean = false,
     val isLoaded: Boolean = false,
+    val modelGroups: ModelGroups = ModelGroups(),
+    val isCreatingModelGroup: Boolean = false,
     val savedModelConfigs: Map<ModelRole, RoleModelSelection> = emptyMap(),
     val draftModelConfigs: Map<ModelRole, RoleModelSelection> = emptyMap(),
     val remoteModelsByProvider: Map<String, List<LlmModelOption>> = emptyMap(),
@@ -234,6 +240,8 @@ private data class LlmFormState(
 )
 
 private data class ModelSectionState(
+    val groups: ModelGroups,
+    val isCreatingGroup: Boolean,
     val savedConfigs: Map<ModelRole, RoleModelSelection>,
     val draftConfigs: Map<ModelRole, RoleModelSelection>,
     val remoteModelsByProvider: Map<String, List<LlmModelOption>>,
@@ -302,6 +310,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private val customProfileNameInput = MutableStateFlow(ModelConfigRepository.DEFAULT_CUSTOM_PROFILE_NAME)
     private val isBusy = MutableStateFlow(false)
 
+    private val isCreatingModelGroup = MutableStateFlow(false)
     private val draftModelConfigs = MutableStateFlow(
         ModelRole.entries.associateWith { RoleModelSelection() },
     )
@@ -346,7 +355,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     private var initialInputPopulated = false
     private var initialCustomUrlPopulated = false
-    private var initialModelsPopulated = false
+    private var lastActiveGroupId: String? = null
+    private var lastSavedModelConfigs: Map<ModelRole, RoleModelSelection> = emptyMap()
+    private var savedModelHistory: Map<ModelRole, List<RoleModelSelection>> = emptyMap()
+    private val draftModelHistory = mutableMapOf<ModelRole, List<RoleModelSelection>>()
     private var initialPersonaPopulated = false
     private var initialAgentStepsPopulated = false
 
@@ -439,19 +451,30 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     private val modelSectionFlow = combine(
-        ModelConfigRepository.observeAllConfigs(),
-        draftModelConfigs,
+        combine(
+            ModelConfigRepository.observeModelGroups(),
+            ModelConfigRepository.observeModelHistory(),
+        ) { groups, history -> groups to history },
+        combine(draftModelConfigs, isCreatingModelGroup) { draft, creating -> draft to creating },
         remoteModelsStateFlow,
         isSavingModels,
-    ) { saved, draft, (remoteModels, loadingProviders, errors), saving ->
-        val resolvedDraft = if (!initialModelsPopulated) {
-            initialModelsPopulated = true
+    ) { (groups, history), (draft, creating), (remoteModels, loadingProviders, errors), saving ->
+        val saved = groups.groups.firstOrNull { it.id == groups.activeId }?.selections.orEmpty()
+        savedModelHistory = history
+        val resolvedDraft = if (groups.activeId != lastActiveGroupId ||
+            (!creating && saved != lastSavedModelConfigs && draft == lastSavedModelConfigs)
+        ) {
+            lastActiveGroupId = groups.activeId
             draftModelConfigs.value = saved
+            draftModelHistory.clear()
             saved
         } else {
             draft
         }
+        lastSavedModelConfigs = saved
         ModelSectionState(
+            groups = groups,
+            isCreatingGroup = creating,
             savedConfigs = saved,
             draftConfigs = resolvedDraft,
             remoteModelsByProvider = remoteModels,
@@ -632,6 +655,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             chatGptAuthState = llm.chatGptAuthState,
             isBusy = llm.isBusy,
             isLoaded = true,
+            modelGroups = models.groups,
+            isCreatingModelGroup = models.isCreatingGroup,
             savedModelConfigs = models.savedConfigs,
             draftModelConfigs = models.draftConfigs,
             remoteModelsByProvider = models.remoteModelsByProvider,
@@ -880,17 +905,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             fetchModelsForProvider(target.provider, target.customProviderId)
             return
         }
-        val updatedSelection = if (target == null) {
-            RoleModelSelection()
-        } else {
-            // 切换或重选服务商后清空已选模型与旧元数据快照，并直接向新服务商请求可用模型列表
-            RoleModelSelection(
-                provider = target.provider,
-                modelId = null,
-                customProviderId = target.customProviderId,
-                modelMetadata = null,
-            )
-        }
+        rememberDraftModel(role, current)
+        val updatedSelection = RoleModelHistory.selectProvider(current, modelHistoryFor(role), target)
         draftModelConfigs.value += (role to updatedSelection)
         if (target != null) {
             fetchModelsForProvider(target.provider, target.customProviderId)
@@ -905,15 +921,29 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         val matchedOption = cacheKey?.let { key ->
             remoteModelsByProvider.value[key]?.firstOrNull { it.modelId == modelId }
         }
-        draftModelConfigs.value += (
-            role to current.copy(
-                modelId = modelId,
-                modelMetadata = matchedOption?.metadata?.takeUnless { it.isEmpty },
-            )
-        )
+        rememberDraftModel(role, current)
+        val option = matchedOption ?: return
+        draftModelConfigs.value += (role to RoleModelHistory.selectModel(current, modelHistoryFor(role), option))
+    }
+
+    fun onSelectReasoningEffort(role: ModelRole, effort: ModelReasoningEffort) {
+        val current = draftModelConfigs.value[role] ?: return
+        if (effort !in current.availableReasoningEfforts()) return
+        draftModelConfigs.value += (role to current.copy(reasoningEffort = effort))
+    }
+
+    private fun modelHistoryFor(role: ModelRole): List<RoleModelSelection> =
+        (draftModelHistory[role].orEmpty() +
+            if (isCreatingModelGroup.value) emptyList() else savedModelHistory[role].orEmpty())
+            .distinctBy { it.providerCacheKey to it.normalizedModelId }
+
+    private fun rememberDraftModel(role: ModelRole, selection: RoleModelSelection) {
+        draftModelHistory[role] = RoleModelHistory.remember(modelHistoryFor(role), selection)
     }
 
     fun resetDraftModelConfigsToSaved() {
+        isCreatingModelGroup.value = false
+        draftModelHistory.clear()
         draftModelConfigs.value = uiState.value.savedModelConfigs
     }
 
@@ -1030,7 +1060,17 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         ChatGptAuthRepository.cancelActiveSignIn()
     }
 
-    fun saveModelConfigs() {
+    fun beginNewModelGroup() {
+        if (isSavingModels.value || lastActiveGroupId == null || isCreatingModelGroup.value) return
+        isCreatingModelGroup.value = true
+        draftModelHistory.clear()
+        draftModelConfigs.value = ModelRole.entries.associateWith { RoleModelSelection() }
+    }
+
+    fun saveModelConfigs(newGroupName: String? = null) {
+        if (isSavingModels.value || isCreatingModelGroup.value != (newGroupName != null)) return
+        if (newGroupName != null && newGroupName.isBlank()) return
+        val groupId = lastActiveGroupId ?: return
         val draft = draftModelConfigs.value
         val incompleteRole = ModelRole.entries.firstOrNull { role ->
             draft[role]?.hasPartialInput == true
@@ -1046,9 +1086,34 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             isSavingModels.value = true
             try {
-                ModelConfigRepository.saveAllConfigs(draft)
+                ModelConfigRepository.saveAllConfigs(
+                    draft, ModelRole.entries.associateWith { modelHistoryFor(it) }, newGroupName, groupId,
+                )
+                isCreatingModelGroup.value = false
                 AppRuntime.syncModelExecutors()
                 _snackbarMessages.emit(R.string.settings_model_saved)
+            } catch (_: Exception) {
+                _snackbarMessages.emit(R.string.settings_model_save_failed)
+            } finally {
+                isSavingModels.value = false
+            }
+        }
+    }
+
+    fun activateModelGroup(id: String) {
+        if (isSavingModels.value) return
+        if (id == lastActiveGroupId) {
+            if (isCreatingModelGroup.value) resetDraftModelConfigsToSaved()
+            return
+        }
+        viewModelScope.launch {
+            isSavingModels.value = true
+            try {
+                ModelConfigRepository.activateModelGroup(id)
+                isCreatingModelGroup.value = false
+                AppRuntime.syncModelExecutors()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (_: Exception) {
                 _snackbarMessages.emit(R.string.settings_model_save_failed)
             } finally {
@@ -1062,6 +1127,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             isSavingModels.value = true
             try {
                 ModelConfigRepository.clearAll()
+                isCreatingModelGroup.value = false
+                draftModelHistory.clear()
                 draftModelConfigs.value = ModelRole.entries.associateWith { RoleModelSelection() }
                 AppRuntime.syncModelExecutors()
                 _snackbarMessages.emit(R.string.settings_model_cleared)

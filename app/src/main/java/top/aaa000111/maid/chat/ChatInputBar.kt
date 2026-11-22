@@ -3,6 +3,7 @@ package top.aaa000111.maid.chat
 import android.content.res.Configuration
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -63,11 +64,14 @@ fun ChatInputBar(
     onPickFilesClick: () -> Unit = {},
     onRemoveFileUri: (String) -> Unit = {},
     onRemoveImageUri: (String) -> Unit = {},
+    isModelUpdating: Boolean = false,
+    modelControls: @Composable () -> Unit = {},
+    personaControl: @Composable () -> Unit = {},
 ) {
     val hasAttachments = pendingFileUris.isNotEmpty() || pendingImageUris.isNotEmpty()
     val allowExternalInput = hasPendingQuestion || isPlanning
     val allowEditingAndSend = !isGenerating || allowExternalInput
-    val canSend = (inputText.isNotBlank() || hasAttachments) && allowEditingAndSend
+    val canSend = (inputText.isNotBlank() || hasAttachments) && allowEditingAndSend && !isModelUpdating
     val showSendForExternalInput = allowExternalInput && canSend
     val showStopAction = isGenerating && !showSendForExternalInput
     var previewingImageUri by rememberSaveable { mutableStateOf<String?>(null) }
@@ -120,7 +124,7 @@ fun ChatInputBar(
                     }
                 }
 
-                // 输入框上方工具栏：左侧图片/文件选择按钮，右侧清空输入按钮
+                // 输入框上方工具栏：左侧附件按钮，右侧人设和模型配置组选单。
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -159,6 +163,14 @@ fun ChatInputBar(
                         TextButton(onClick = { onInputChanged("") }) {
                             Text(text = stringResource(R.string.chat_clear_input))
                         }
+                    }
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.End),
+                    ) {
+                        Box(modifier = Modifier.weight(1f, fill = false)) { personaControl() }
+                        Box(modifier = Modifier.weight(1f, fill = false)) { modelControls() }
                     }
                 }
 

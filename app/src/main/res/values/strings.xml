@@ -1,4 +1,24 @@
 <resources>
+    <string name="model_group_default">默认配置</string>
+    <string name="model_group_selected">模型配置组 · %1$s</string>
+    <string name="model_group_active">当前配置组</string>
+    <string name="model_group_manage">前往设置</string>
+    <string name="model_group_create">新建配置组</string>
+    <string name="model_group_name">配置组名称</string>
+    <string name="model_group_duplicate">已存在同名配置组</string>
+    <string name="model_group_switch_failed">切换配置组失败，请重试。</string>
+    <string name="model_group_clear_confirmation">将清除所有已保存的模型配置组和选择记录。</string>
+    <string name="settings_reasoning_label">思考强度</string>
+    <string name="settings_reasoning_default">服务端默认</string>
+    <string name="settings_reasoning_none">关闭（none）</string>
+    <string name="settings_reasoning_minimal">最少（minimal）</string>
+    <string name="settings_reasoning_low">低（low）</string>
+    <string name="settings_reasoning_medium">中（medium）</string>
+    <string name="settings_reasoning_high">高（high）</string>
+    <string name="settings_reasoning_xhigh">极高（xhigh）</string>
+    <string name="settings_reasoning_max">最高（max）</string>
+    <string name="settings_reasoning_hint">默认不指定强度；较高强度通常会增加耗时和用量。各模型支持的等级不同，不支持的等级可能被服务商拒绝。</string>
+    <string name="settings_reasoning_unavailable">请选择模型。当前仅支持 OpenAI、ChatGPT、自定义 OpenAI 兼容端点和 OpenRouter；已标记不支持推理的模型使用默认设置。</string>
     <string name="app_name">maid</string>
 
     <string name="settings_title">设置</string>
@@ -84,6 +104,12 @@
     <string name="settings_model_role_complex_vision_title">复杂视觉模型</string>
     <string name="settings_model_role_complex_vision_desc">用于高精度图文理解与复杂屏幕状态分析</string>
     <string name="settings_section_persona">角色与人设</string>
+    <string name="chat_persona_picker">切换人设</string>
+    <string name="chat_persona_label">人设</string>
+    <string name="chat_persona_custom">自定义人设</string>
+    <string name="chat_persona_selected">当前人设</string>
+    <string name="chat_persona_no_presets">暂无人设预设</string>
+    <string name="chat_persona_load_failed">加载人设预设失败，请重试</string>
     <string name="settings_persona_entry_title">Persona 管理</string>
     <string name="settings_persona_entry_summary_empty">未设置人设（使用默认助手语气与性格）</string>
     <string name="settings_persona_entry_summary_empty_with_presets">未设置人设，可从 %1$d 个预设中选择或自定义</string>
@@ -255,9 +281,8 @@
     <string name="accessibility_service_description">Maid 无障碍辅助服务，用于自动化节点解析与屏幕操作。</string>
 
     <string name="fgs_status_channel_name">Maid 状态通知</string>
-    <string name="fgs_status_channel_desc">用于在前台服务运行时显示状态文本</string>
-    <string name="fgs_status_default_title">Maid 正在运行</string>
-    <string name="fgs_status_default_text">状态服务已就绪</string>
+    <string name="fgs_status_channel_desc">显示正在执行任务的聊天会话</string>
+    <string name="fgs_status_running_sessions">%1$d 个会话正在执行任务</string>
 
     <string name="settings_model_safety_entry_title">模型安全性</string>
     <string name="settings_model_safety_entry_summary">%1$s · 允许 %2$d / %3$d 项敏感操作</string>

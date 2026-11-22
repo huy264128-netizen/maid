@@ -134,6 +134,30 @@ class ChatTaskDispatcher(
         }
     }
 
+    /**
+     * 为后台定时任务创建新会话并持久化，不抢占用户当前正在查看的活跃会话。
+     */
+    fun createBackgroundSession(
+        title: String,
+        defaultTitlePrefix: String = ChatSession.DEFAULT_TITLE,
+    ): ChatSession {
+        synchronized(sessionLock) {
+            sessionCounter.incrementAndGet()
+            val resolvedTitle = title.trim().ifEmpty { defaultTitlePrefix }
+            val newSession = createManagedSession(
+                title = resolvedTitle,
+                defaultTitlePrefix = defaultTitlePrefix,
+            )
+            val hadSessions = _sessions.value.isNotEmpty()
+            _sessions.value = listOf(newSession) + _sessions.value
+            persistSession(newSession.toPersistedSnapshot())
+            if (!hadSessions) {
+                sessionStore?.setActiveSessionId(newSession.id)
+            }
+            return newSession
+        }
+    }
+
     fun deleteSession(
         sessionId: String,
         defaultTitlePrefix: String = ChatSession.DEFAULT_TITLE,
@@ -319,9 +343,10 @@ class ChatTaskDispatcher(
                         isError = true,
                     )
                 } finally {
-                    val removed = activeTurnJobs.remove(session.id, launchedJob)
-                    if (removed) {
-                        _runningSessionIds.update { it - session.id }
+                    synchronized(sessionLock) {
+                        if (activeTurnJobs.remove(session.id, launchedJob)) {
+                            _runningSessionIds.update { it - session.id }
+                        }
                     }
                 }
             }
@@ -339,11 +364,21 @@ class ChatTaskDispatcher(
     }
 
     /**
+     * 等待指定会话当前活跃的后台模型任务执行完毕（若当前未在执行则立即返回）。
+     */
+    suspend fun awaitActiveTurn(sessionId: String) {
+        activeTurnJobs[sessionId]?.join()
+    }
+
+    /**
      * 仅取消指定会话正在进行的后台模型任务，不影响其他会话。
      */
     fun stopSession(sessionId: String) {
-        val job = activeTurnJobs.remove(sessionId)
-        _runningSessionIds.update { it - sessionId }
+        val job = synchronized(sessionLock) {
+            val removed = activeTurnJobs.remove(sessionId)
+            _runningSessionIds.update { it - sessionId }
+            removed
+        }
         job?.cancel()
     }
 
@@ -404,7 +439,7 @@ internal class DefaultChatModelAvailabilityChecker(
 }
 
 /**
- * 全局应用级后台对话调度器单例，生命周期与进程绑定，后续可直接配合前台服务保活。
+ * 全局应用级后台对话调度器单例，生命周期与进程绑定；任务通知观察调度器的运行状态。
  */
 object ChatBackgroundRuntime {
 

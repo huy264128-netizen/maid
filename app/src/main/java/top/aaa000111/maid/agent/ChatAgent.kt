@@ -248,6 +248,18 @@ class ChatAgent(
                 AppRuntime.createBrowserUseAgentManager()?.let { browserManager ->
                     effectiveToolRegistry = mergeTools(effectiveToolRegistry, browserManager.asToolRegistry())
                 }
+                AppRuntime.createScheduledTaskToolSet()?.let { scheduledToolSet ->
+                    effectiveToolRegistry = mergeTools(
+                        base = effectiveToolRegistry,
+                        extra = ToolRegistry { tools(scheduledToolSet) },
+                    )
+                }
+                AppRuntime.createAlarmClockToolSet()?.let { alarmClockToolSet ->
+                    effectiveToolRegistry = mergeTools(
+                        base = effectiveToolRegistry,
+                        extra = ToolRegistry { tools(alarmClockToolSet) },
+                    )
+                }
                 val directImageToolSet = if (useDirectImageInput) {
                     DirectImageReadToolSet(
                         imageAttachmentResolver = imageAttachmentResolver ?: VisionToolSet::resolveImageAttachment,

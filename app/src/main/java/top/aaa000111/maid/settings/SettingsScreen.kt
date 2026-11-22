@@ -96,6 +96,8 @@ import top.aaa000111.maid.provider.LlmKeyRepository
 import top.aaa000111.maid.provider.LlmModelOption
 import top.aaa000111.maid.provider.LlmProvider
 import top.aaa000111.maid.provider.ModelProviderTarget
+import top.aaa000111.maid.provider.ModelReasoningEffort
+import top.aaa000111.maid.provider.availableReasoningEfforts
 import top.aaa000111.maid.provider.ModelRole
 import top.aaa000111.maid.provider.RoleModelSelection
 import top.aaa000111.maid.shizuku.ShizukuAvailability
@@ -253,10 +255,14 @@ fun SettingsScreen(
         onClearApiKey = viewModel::clearApiKey,
         onSelectModelProvider = viewModel::onSelectModelProvider,
         onSelectModelId = viewModel::onSelectModelId,
+        onSelectReasoningEffort = viewModel::onSelectReasoningEffort,
         onRefreshProviderModels = { provider, customId ->
             viewModel.fetchModelsForProvider(provider, customId)
         },
-        onSaveModelConfigs = viewModel::saveModelConfigs,
+        onSaveModelConfigs = { viewModel.saveModelConfigs() },
+        onSaveModelGroup = { viewModel.saveModelConfigs(it) },
+        onCreateModelGroup = viewModel::beginNewModelGroup,
+        onActivateModelGroup = viewModel::activateModelGroup,
         onClearAllModelConfigs = viewModel::clearAllModelConfigs,
         onRefreshTinyModels = viewModel::refreshTinyModels,
         onSelectTinyModel = viewModel::selectTinyModel,
@@ -338,8 +344,12 @@ fun SettingsScreenContent(
     onClearApiKey: () -> Unit,
     onSelectModelProvider: (ModelRole, ModelProviderTarget?) -> Unit,
     onSelectModelId: (ModelRole, String) -> Unit,
+    onSelectReasoningEffort: (ModelRole, ModelReasoningEffort) -> Unit = { _, _ -> },
     onRefreshProviderModels: (LlmProvider, String?) -> Unit,
     onSaveModelConfigs: () -> Unit,
+    onSaveModelGroup: (String) -> Unit = {},
+    onCreateModelGroup: () -> Unit = {},
+    onActivateModelGroup: (String) -> Unit = {},
     onClearAllModelConfigs: () -> Unit,
     onRefreshPersonaPresets: () -> Unit,
     onSelectPersonaPreset: (PersonaPreset) -> Unit,
@@ -538,8 +548,12 @@ fun SettingsScreenContent(
                         onOpenChatGptAuth = onOpenChatGptAuth,
                         onSelectModelProvider = onSelectModelProvider,
                         onSelectModelId = onSelectModelId,
+                        onSelectReasoningEffort = onSelectReasoningEffort,
                         onRefreshProviderModels = onRefreshProviderModels,
                         onSaveModelConfigs = onSaveModelConfigs,
+                        onSaveModelGroup = onSaveModelGroup,
+                        onCreateModelGroup = onCreateModelGroup,
+                        onActivateModelGroup = onActivateModelGroup,
                         onClearAllModelConfigs = onClearAllModelConfigs,
                     )
                 }
@@ -2719,13 +2733,55 @@ private fun ModelSelectionContent(
     onOpenChatGptAuth: () -> Unit,
     onSelectModelProvider: (ModelRole, ModelProviderTarget?) -> Unit,
     onSelectModelId: (ModelRole, String) -> Unit,
+    onSelectReasoningEffort: (ModelRole, ModelReasoningEffort) -> Unit = { _, _ -> },
     onRefreshProviderModels: (LlmProvider, String?) -> Unit,
     onSaveModelConfigs: () -> Unit,
+    onSaveModelGroup: (String) -> Unit = {},
+    onCreateModelGroup: () -> Unit = {},
+    onActivateModelGroup: (String) -> Unit = {},
     onClearAllModelConfigs: () -> Unit,
 ) {
     val configuredTargets = uiState.configuredModelTargets
     val hasAnyDraftOrSaved = uiState.draftModelConfigs.values.any { it.provider != null } ||
+        uiState.modelGroups.groups.any { group -> group.selections.values.any { it.isComplete } } ||
         uiState.savedModelConfigs.values.any { it.provider != null }
+    var confirmClearGroups by rememberSaveable { mutableStateOf(false) }
+    var newGroupName by rememberSaveable(uiState.isCreatingModelGroup) { mutableStateOf("") }
+    val trimmedGroupName = newGroupName.trim()
+    val duplicateGroupName = trimmedGroupName.isNotEmpty() && uiState.modelGroups.groups.any {
+        it.name.equals(trimmedGroupName, ignoreCase = true)
+    }
+
+    if (confirmClearGroups) {
+        AlertDialog(
+            onDismissRequest = { confirmClearGroups = false },
+            title = { Text(stringResource(R.string.settings_model_clear_all)) },
+            text = { Text(stringResource(R.string.model_group_clear_confirmation)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmClearGroups = false
+                    onClearAllModelConfigs()
+                }) { Text(stringResource(R.string.settings_model_clear_all)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmClearGroups = false }) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+            },
+        )
+    }
+
+    val draftTargets = uiState.draftModelConfigs.values.mapNotNull { selection ->
+        selection.provider?.let { it to selection.normalizedCustomProviderId }
+    }.distinct()
+    LaunchedEffect(uiState.modelGroups.activeId, draftTargets, configuredTargets) {
+        draftTargets.forEach { (provider, customId) ->
+            val key = ModelProviderTarget.providerCacheKey(provider, customId)
+            if (configuredTargets.any { it.cacheKey == key } &&
+                key !in uiState.remoteModelsByProvider && key !in uiState.modelFetchErrors
+            ) onRefreshProviderModels(provider, customId)
+        }
+    }
 
     if (configuredTargets.isEmpty()) {
         Column(
@@ -2800,7 +2856,7 @@ private fun ModelSelectionContent(
                     }
                     if (hasAnyDraftOrSaved) {
                         OutlinedButton(
-                            onClick = onClearAllModelConfigs,
+                            onClick = { confirmClearGroups = true },
                             enabled = !uiState.isSavingModels,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
@@ -2867,6 +2923,17 @@ private fun ModelSelectionContent(
             }
         }
 
+        ModelGroupSettings(
+            groups = uiState.modelGroups,
+            enabled = !uiState.isSavingModels,
+            onActivate = onActivateModelGroup,
+            onCreate = onCreateModelGroup,
+            creating = uiState.isCreatingModelGroup,
+            name = newGroupName,
+            duplicateName = duplicateGroupName,
+            onNameChange = { newGroupName = it },
+        )
+
         ModelRole.entries.forEach { role ->
             val selection = uiState.draftModelConfigs[role] ?: RoleModelSelection()
             val selectedProvider = selection.provider
@@ -2884,6 +2951,7 @@ private fun ModelSelectionContent(
                 isSaving = uiState.isSavingModels,
                 onSelectProvider = { target -> onSelectModelProvider(role, target) },
                 onSelectModelId = { modelId -> onSelectModelId(role, modelId) },
+                onSelectReasoningEffort = { effort -> onSelectReasoningEffort(role, effort) },
                 onRefreshModels = {
                     selectedProvider?.let { provider ->
                         onRefreshProviderModels(provider, selection.normalizedCustomProviderId)
@@ -2899,7 +2967,7 @@ private fun ModelSelectionContent(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             OutlinedButton(
-                onClick = onClearAllModelConfigs,
+                onClick = { confirmClearGroups = true },
                 enabled = !uiState.isSavingModels && hasAnyDraftOrSaved,
                 modifier = Modifier.weight(1f),
             ) {
@@ -2913,8 +2981,12 @@ private fun ModelSelectionContent(
             }
 
             Button(
-                onClick = onSaveModelConfigs,
-                enabled = !uiState.isSavingModels,
+                onClick = {
+                    if (uiState.isCreatingModelGroup) onSaveModelGroup(trimmedGroupName)
+                    else onSaveModelConfigs()
+                },
+                enabled = !uiState.isSavingModels && (!uiState.isCreatingModelGroup ||
+                    (trimmedGroupName.isNotEmpty() && !duplicateGroupName)),
                 modifier = Modifier.weight(1f),
             ) {
                 if (uiState.isSavingModels) {
@@ -2950,10 +3022,14 @@ private fun ModelRoleConfigCard(
     isSaving: Boolean,
     onSelectProvider: (ModelProviderTarget?) -> Unit,
     onSelectModelId: (String) -> Unit,
+    onSelectReasoningEffort: (ModelReasoningEffort) -> Unit,
     onRefreshModels: () -> Unit,
 ) {
     var providerMenuExpanded by remember { mutableStateOf(false) }
     var modelMenuExpanded by remember { mutableStateOf(false) }
+    var reasoningMenuExpanded by remember { mutableStateOf(false) }
+    val reasoningOptions = selection.availableReasoningEfforts()
+    val canSelectReasoning = !isSaving && reasoningOptions.size > 1
 
     val selectedProvider = selection.provider
     val selectedTarget = remember(selection.providerCacheKey, configuredTargets) {
@@ -3210,6 +3286,58 @@ private fun ModelRoleConfigCard(
                     }
                 }
             }
+
+            ExposedDropdownMenuBox(
+                expanded = reasoningMenuExpanded && canSelectReasoning,
+                onExpandedChange = {
+                    if (canSelectReasoning) reasoningMenuExpanded = !reasoningMenuExpanded
+                },
+            ) {
+                OutlinedTextField(
+                    value = stringResource(
+                        selection.reasoningEffort.takeIf { it in reasoningOptions }
+                            ?.titleRes ?: ModelReasoningEffort.DEFAULT.titleRes,
+                    ),
+                    onValueChange = {},
+                    readOnly = true,
+                    enabled = canSelectReasoning,
+                    label = { Text(stringResource(R.string.settings_reasoning_label)) },
+                    trailingIcon = {
+                        ExposedDropdownMenuDefaults.TrailingIcon(
+                            expanded = reasoningMenuExpanded && canSelectReasoning,
+                        )
+                    },
+                    colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                    modifier = Modifier
+                        .menuAnchor(
+                            type = ExposedDropdownMenuAnchorType.PrimaryNotEditable,
+                            enabled = canSelectReasoning,
+                        )
+                        .fillMaxWidth(),
+                )
+                ExposedDropdownMenu(
+                    expanded = reasoningMenuExpanded && canSelectReasoning,
+                    onDismissRequest = { reasoningMenuExpanded = false },
+                ) {
+                    reasoningOptions.forEach { effort ->
+                        DropdownMenuItem(
+                            text = { Text(stringResource(effort.titleRes)) },
+                            onClick = {
+                                reasoningMenuExpanded = false
+                                onSelectReasoningEffort(effort)
+                            },
+                        )
+                    }
+                }
+            }
+            Text(
+                text = stringResource(
+                    if (reasoningOptions.size > 1) R.string.settings_reasoning_hint
+                    else R.string.settings_reasoning_unavailable,
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
 
             if (selectedProvider != null) {
                 when {

@@ -307,6 +307,29 @@ object ToolsetPermissionCatalog {
         aliases = setOf("getstreamvolumes", "setstreamvolume", "音量"),
     )
 
+    val ALARM_CLOCK = ToolsetPermissionSpec(
+        toolsetId = "alarm_clock",
+        displayTitle = "手机系统闹钟工具集",
+        description = "调用手机自带时钟应用设置闹钟、倒计时、查看闹钟/计时器以及关闭或延后响铃闹钟",
+        requiredPrivileges = emptyList(),
+        aliases = setOf(
+            "alarm_clock",
+            "alarmclock",
+            "system_alarm",
+            "clock",
+            "闹钟",
+            "手机闹钟",
+            "系统闹钟",
+            "倒计时",
+            "setsystemalarm",
+            "setsystemtimer",
+            "showsystemalarms",
+            "showsystemtimers",
+            "dismisssystemalarm",
+            "snoozesystemalarm",
+        ),
+    )
+
     val allSpecs: List<ToolsetPermissionSpec> = listOf(
         INPUT,
         KEY_INPUT,
@@ -320,6 +343,7 @@ object ToolsetPermissionCatalog {
         USAGE_STATS,
         SYSTEM_SETTINGS,
         AUDIO,
+        ALARM_CLOCK,
     )
 
     fun resolve(

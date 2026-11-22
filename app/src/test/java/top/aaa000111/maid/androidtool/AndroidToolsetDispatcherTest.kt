@@ -140,16 +140,26 @@ class AndroidToolsetDispatcherTest {
 
         fun allowedNames(): Set<String> = dispatcher.resolveAllowedToolSets().map { it.name }.toSet()
 
-        val audioTools = setOf("getStreamVolumes", "setStreamVolume")
-        fun nonAudioToolNames(): Set<String> = dispatcher.dispatch().tools.map { it.name }.toSet() - audioTools
+        val alwaysAllowedToolsets = setOf("audio", "alarm_clock")
+        val alwaysAllowedTools = setOf(
+            "getStreamVolumes",
+            "setStreamVolume",
+            "setSystemAlarm",
+            "setSystemTimer",
+            "showSystemAlarms",
+            "showSystemTimers",
+            "dismissSystemAlarm",
+            "snoozeSystemAlarm",
+        )
+        fun privilegedToolNames(): Set<String> = dispatcher.dispatch().tools.map { it.name }.toSet() - alwaysAllowedTools
 
-        // 普通音频权限随应用安装获得，无需特殊权限。
-        assertEquals(setOf("audio"), allowedNames())
-        assertEquals(audioTools, dispatcher.dispatch().tools.map { it.name }.toSet())
+        // 普通音频与系统闹钟权限随应用安装获得，无需特殊权限。
+        assertEquals(alwaysAllowedToolsets, allowedNames())
+        assertEquals(alwaysAllowedTools, dispatcher.dispatch().tools.map { it.name }.toSet())
 
         // 1. 仅无障碍：动态加载 input 与 screen
         heldPrivileges = setOf(AndroidPrivilege.ACCESSIBILITY)
-        assertEquals(setOf("input", "screen", "audio"), allowedNames())
+        assertEquals(setOf("input", "screen") + alwaysAllowedToolsets, allowedNames())
         assertEquals(
             setOf(
                 "tap",
@@ -162,7 +172,7 @@ class AndroidToolsetDispatcherTest {
                 "clickNodeByViewId",
                 "performGlobalAction",
             ),
-            nonAudioToolNames(),
+            privilegedToolNames(),
         )
 
         // 2. 仅普通 Shizuku（ADB）：加载 input, screen, shell, app_control, window, file_management, usage_stats, system_settings；不加载 root_system 与 device_policy
@@ -171,7 +181,6 @@ class AndroidToolsetDispatcherTest {
             setOf(
                 "input",
                 "key_input",
-                "audio",
                 "screen",
                 "shell",
                 "app_control",
@@ -179,7 +188,7 @@ class AndroidToolsetDispatcherTest {
                 "file_management",
                 "usage_stats",
                 "system_settings",
-            ),
+            ) + alwaysAllowedToolsets,
             allowedNames(),
         )
         val shizukuTools = dispatcher.dispatch().tools.map { it.name }.toSet()
@@ -199,7 +208,6 @@ class AndroidToolsetDispatcherTest {
             setOf(
                 "input",
                 "key_input",
-                "audio",
                 "screen",
                 "shell",
                 "app_control",
@@ -208,7 +216,7 @@ class AndroidToolsetDispatcherTest {
                 "file_management",
                 "usage_stats",
                 "system_settings",
-            ),
+            ) + alwaysAllowedToolsets,
             allowedNames(),
         )
         assertTrue("executeRootShell" in dispatcher.dispatch().tools.map { it.name })
@@ -219,7 +227,6 @@ class AndroidToolsetDispatcherTest {
             setOf(
                 "input",
                 "key_input",
-                "audio",
                 "screen",
                 "shell",
                 "app_control",
@@ -228,13 +235,13 @@ class AndroidToolsetDispatcherTest {
                 "file_management",
                 "usage_stats",
                 "system_settings",
-            ),
+            ) + alwaysAllowedToolsets,
             allowedNames(),
         )
 
         // 5. 仅 Dhizuku：额外加载 device_policy
         heldPrivileges = setOf(AndroidPrivilege.DHIZUKU)
-        assertEquals(setOf("device_policy", "audio"), allowedNames())
+        assertEquals(setOf("device_policy") + alwaysAllowedToolsets, allowedNames())
         assertEquals(
             setOf(
                 "getDhizukuInfo",
@@ -246,12 +253,12 @@ class AndroidToolsetDispatcherTest {
                 "isUninstallBlocked",
                 "lockScreenNow",
             ),
-            nonAudioToolNames(),
+            privilegedToolNames(),
         )
 
         // 6. 普通安卓权限独立解锁对应的工具集（无需 Shizuku / Root）
         heldPrivileges = setOf(AndroidPrivilege.FILE_MANAGEMENT)
-        assertEquals(setOf("file_management", "audio"), allowedNames())
+        assertEquals(setOf("file_management") + alwaysAllowedToolsets, allowedNames())
         assertEquals(
             setOf(
                 "listDirectory",
@@ -265,49 +272,48 @@ class AndroidToolsetDispatcherTest {
                 "importFileToSession",
                 "exportFileFromSession",
             ),
-            nonAudioToolNames(),
+            privilegedToolNames(),
         )
 
         heldPrivileges = setOf(AndroidPrivilege.USAGE_STATS)
-        assertEquals(setOf("usage_stats", "audio"), allowedNames())
+        assertEquals(setOf("usage_stats") + alwaysAllowedToolsets, allowedNames())
         assertEquals(
             setOf("getRecentForegroundApps", "getAppUsageSummary"),
-            nonAudioToolNames(),
+            privilegedToolNames(),
         )
 
         heldPrivileges = setOf(AndroidPrivilege.WRITE_SETTINGS)
-        assertEquals(setOf("system_settings", "audio"), allowedNames())
+        assertEquals(setOf("system_settings") + alwaysAllowedToolsets, allowedNames())
         assertEquals(
             setOf(
                 "getDisplaySettings",
                 "setScreenBrightness",
                 "setScreenOffTimeout",
             ),
-            nonAudioToolNames(),
+            privilegedToolNames(),
         )
 
-        // 7. 全部权限就绪：12 个 ToolSet 的所有 Koog @Tool 方法均能通过反射注册
+        // 7. 全部权限就绪：13 个 ToolSet 的所有 Koog @Tool 方法均能通过反射注册
         heldPrivileges = AndroidPrivilege.entries.toSet()
         assertEquals(
             setOf(
                 "input",
                 "key_input",
-                "audio",
                 "screen",
                 "shell",
                 "app_control",
                 "window",
                 "root_system",
-                "device_policy",
                 "file_management",
                 "usage_stats",
                 "system_settings",
-            ),
+                "device_policy",
+            ) + alwaysAllowedToolsets,
             allowedNames(),
         )
         val allToolNames = dispatcher.dispatch().tools.map { it.name }
-        assertEquals(53, allToolNames.size)
-        assertEquals(53, allToolNames.toSet().size)
+        assertEquals(59, allToolNames.size)
+        assertEquals(59, allToolNames.toSet().size)
     }
 
     @Suppress("UNCHECKED_CAST")

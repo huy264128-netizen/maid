@@ -13,8 +13,8 @@ android {
         applicationId = "top.aaa000111.maid"
         minSdk = 31
         targetSdk = 37
-        versionCode = 101
-        versionName = "0.1.1"
+        versionCode = 200
+        versionName = "0.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -60,6 +60,7 @@ android {
     sourceSets {
         getByName("main") {
             kotlin.directories.add("../third_party/vtfx/src/main/kotlin")
+            kotlin.directories.add("../third_party/maidlang/src/main/kotlin")
         }
     }
     compileOptions {
@@ -100,6 +101,7 @@ dependencies {
 
     // DataStore Preferences
     implementation(libs.androidx.datastore.preferences)
+    implementation(libs.androidx.work.runtime)
 
     // Koog (via JitPack)
     implementation(libs.koog)

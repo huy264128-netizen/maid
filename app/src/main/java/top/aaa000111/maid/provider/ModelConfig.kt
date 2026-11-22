@@ -85,6 +85,7 @@ data class RoleModelSelection(
     val modelId: String? = null,
     val customProviderId: String? = null,
     val modelMetadata: LlmModelMetadata? = null,
+    val reasoningEffort: ModelReasoningEffort = ModelReasoningEffort.DEFAULT,
 ) {
     val normalizedModelId: String?
         get() = modelId?.trim()?.takeIf { it.isNotEmpty() }

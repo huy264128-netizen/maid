@@ -27,7 +27,7 @@ Java 17 是源码编译兼容级别，不能据此把 Gradle Daemon 配置改成
 3. 配置本机 SDK 路径：通过 IDE 生成 `local.properties` 的 `sdk.dir`，或使用正确的 SDK 环境配置；不要共享个人 SDK 绝对路径。
 4. 保留仓库中的 Gradle Wrapper 与 Daemon JVM 配置。首次运行可能需要联网获取 Java 25 工具链和依赖。
 5. 确保可以访问配置中的 Google Maven、Maven Central、Gradle Plugin Portal 和 JitPack。Koog 使用 `main-SNAPSHOT`，依赖解析受远端快照变化影响。
-6. 保留完整的原生源码、`third_party/vtfx` 和内置资产。模型及 rootfs 归档会影响 APK 大小、打包时间和设备端磁盘占用。
+6. 保留完整的原生源码、`third_party/vtfx`、`third_party/maidlang` 和内置资产。模型及 rootfs 归档会影响 APK 大小、打包时间和设备端磁盘占用。
 
 先检查实际工具链：
 

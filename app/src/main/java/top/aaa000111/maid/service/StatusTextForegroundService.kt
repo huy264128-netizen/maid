@@ -10,93 +10,112 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import top.aaa000111.maid.MainActivity
 import top.aaa000111.maid.R
+import top.aaa000111.maid.chat.ChatBackgroundRuntime
 
-/**
- * 仅用于显示文本的轻量前台服务。
- *
- * 通过 [start] / [updateText] 启动或更新通知栏文本，通过 [stop] 停止。
- */
+/** Displays active chat sessions while the dispatcher owns and executes their tasks. */
+@OptIn(ExperimentalCoroutinesApi::class)
 class StatusTextForegroundService : Service() {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private var notificationJob: Job? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) {
-            stopForegroundCompat()
-            stopSelf()
+        val dispatcher = ChatBackgroundRuntime.current
+        val titles = dispatcher.runningSessionIds.value.map { id ->
+            dispatcher.findSession(id)?.title ?: getString(R.string.chat_default_session_title)
+        }
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_ID,
+                getString(R.string.fgs_status_channel_name),
+                NotificationManager.IMPORTANCE_LOW,
+            ).apply {
+                description = getString(R.string.fgs_status_channel_desc)
+                setShowBadge(false)
+            },
+        )
+        val serviceType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+        } else 0
+        try {
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(titles), serviceType)
+        } catch (failure: RuntimeException) {
+            if (failure !is IllegalStateException && failure !is SecurityException) throw failure
+            Log.w(TAG, "Could not promote chat task status service", failure)
+            stopSelf(startId)
             return START_NOT_STICKY
         }
 
-        val title = intent?.getStringExtra(EXTRA_TITLE)
-            ?.takeIf { it.isNotBlank() }
-            ?: getString(R.string.fgs_status_default_title)
-        val text = intent?.getStringExtra(EXTRA_TEXT)
-            ?.takeIf { it.isNotBlank() }
-            ?: getString(R.string.fgs_status_default_text)
-
-        ensureNotificationChannel()
-        val notification = buildNotification(title = title, text = text)
-        val serviceType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+        notificationJob?.cancel()
+        if (titles.isEmpty()) {
+            stopSelf(startId)
         } else {
-            0
+            notificationJob = scope.launch {
+                combine(dispatcher.runningSessionIds, dispatcher.sessions) { ids, sessions ->
+                    val byId = sessions.associateBy { it.id }
+                    ids.map { byId[it] }
+                }.distinctUntilChanged().flatMapLatest { runningSessions ->
+                    if (runningSessions.isEmpty()) {
+                        flowOf(emptyList())
+                    } else {
+                        combine(runningSessions.map { session ->
+                            session?.state?.map { it.title }?.distinctUntilChanged()
+                                ?: flowOf(getString(R.string.chat_default_session_title))
+                        }) { names -> names.toList() }
+                    }
+                }.distinctUntilChanged().collect { activeTitles ->
+                    if (activeTitles.isEmpty()) {
+                        if (!dispatcher.isAnyGenerating()) stopSelf(startId)
+                    } else {
+                        manager.notify(NOTIFICATION_ID, buildNotification(activeTitles))
+                    }
+                }
+            }
         }
-
-        ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, serviceType)
-        _isRunning.value = true
-        _currentText.value = text
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     override fun onDestroy() {
-        _isRunning.value = false
+        scope.cancel()
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         super.onDestroy()
     }
 
-    private fun stopForegroundCompat() {
-        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
-        _isRunning.value = false
-    }
-
-    private fun ensureNotificationChannel() {
-        val manager = getSystemService(NotificationManager::class.java) ?: return
-        if (manager.getNotificationChannel(CHANNEL_ID) != null) return
-
-        val channel = NotificationChannel(
-            CHANNEL_ID,
-            getString(R.string.fgs_status_channel_name),
-            NotificationManager.IMPORTANCE_LOW,
-        ).apply {
-            description = getString(R.string.fgs_status_channel_desc)
-            setShowBadge(false)
-        }
-        manager.createNotificationChannel(channel)
-    }
-
-    private fun buildNotification(title: String, text: String): Notification {
-        val launchIntent = Intent(this, MainActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        }
-        val contentPendingIntent = PendingIntent.getActivity(
+    private fun buildNotification(titles: List<String>): Notification {
+        val contentIntent = PendingIntent.getActivity(
             this,
             0,
-            launchIntent,
+            Intent(this, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_shield)
-            .setContentTitle(title)
-            .setContentText(text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-            .setContentIntent(contentPendingIntent)
+            .setContentTitle(getString(R.string.fgs_status_running_sessions, titles.size))
+            .setContentText(titles.joinToString(" · "))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(titles.joinToString("\n")))
+            .setContentIntent(contentIntent)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setSilent(true)
@@ -105,49 +124,17 @@ class StatusTextForegroundService : Service() {
     }
 
     companion object {
-        const val CHANNEL_ID = "maid_status_text_channel"
-        const val NOTIFICATION_ID = 1001
-        const val ACTION_START_OR_UPDATE = "top.aaa000111.maid.action.STATUS_FGS_UPDATE"
-        const val ACTION_STOP = "top.aaa000111.maid.action.STATUS_FGS_STOP"
-        const val EXTRA_TITLE = "extra_title"
-        const val EXTRA_TEXT = "extra_text"
+        private const val TAG = "ChatTaskStatus"
+        private const val CHANNEL_ID = "maid_status_text_channel"
+        private const val NOTIFICATION_ID = 1001
 
-        private val _isRunning = MutableStateFlow(false)
-        val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
-
-        private val _currentText = MutableStateFlow("")
-        val currentText: StateFlow<String> = _currentText.asStateFlow()
-
-        fun start(
-            context: Context,
-            text: String,
-            title: String? = null,
-        ) {
-            val appContext = context.applicationContext
-            val intent = Intent(appContext, StatusTextForegroundService::class.java).apply {
-                action = ACTION_START_OR_UPDATE
-                putExtra(EXTRA_TEXT, text)
-                if (!title.isNullOrBlank()) {
-                    putExtra(EXTRA_TITLE, title)
-                }
+        fun start(context: Context) {
+            try {
+                context.startForegroundService(Intent(context, StatusTextForegroundService::class.java))
+            } catch (failure: RuntimeException) {
+                if (failure !is IllegalStateException && failure !is SecurityException) throw failure
+                Log.w(TAG, "Could not start chat task status service", failure)
             }
-            appContext.startForegroundService(intent)
-        }
-
-        fun updateText(
-            context: Context,
-            text: String,
-            title: String? = null,
-        ) {
-            start(context = context, text = text, title = title)
-        }
-
-        fun stop(context: Context) {
-            val appContext = context.applicationContext
-            val intent = Intent(appContext, StatusTextForegroundService::class.java).apply {
-                action = ACTION_STOP
-            }
-            appContext.stopService(intent)
         }
     }
 }
