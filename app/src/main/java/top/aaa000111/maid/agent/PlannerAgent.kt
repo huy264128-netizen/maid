@@ -107,6 +107,7 @@ class PlannerAgent(
         imageUris: List<String> = emptyList(),
         controlToolSet: PlannerControlToolSet,
         maxCheckpoints: Int? = null,
+        virtualDisplays: VirtualDisplayAgentManager? = null,
     ): CheckpointOutcome {
         val binding = modelBindingProvider?.invoke()
             ?: ChatAgent.resolveDefaultModelBinding(modelRoles)
@@ -144,6 +145,9 @@ class PlannerAgent(
                 base = effectiveToolRegistry,
                 extra = ResearchAgentManager(researchAgent).asToolRegistry(),
             )
+        }
+        if (virtualDisplays != null) {
+            effectiveToolRegistry = mergeTools(effectiveToolRegistry, virtualDisplays.asToolRegistry())
         }
         AppRuntime.createBrowserUseAgentManager()?.let { browserManager ->
             effectiveToolRegistry = mergeTools(effectiveToolRegistry, browserManager.asToolRegistry())

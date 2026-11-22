@@ -88,6 +88,8 @@ object ToolCallDisplayFormatter {
         // ScreenToolSet
         "captureScreenshot" to "截取屏幕",
         "dumpUiTree" to "导出 UI 层级树",
+        "dumpVirtualDisplayUi" to "读取虚拟显示器 UI",
+        "inspectVirtualDisplay" to "分析虚拟显示器画面",
         "findNodesByText" to "按文本查找控件",
         "clickNodeByText" to "按文本点击控件",
         "clickNodeByViewId" to "按 ID 点击控件",

@@ -46,6 +46,12 @@ ChatAgent 挂载 Planner 和 Research Manager，PlannerAgent 挂载 Device、Lin
 
 每次构造上层 Agent 的工具集时创建对应 Manager，ID 只属于同一个 Manager 实例。模型需在依赖结果、推进检查点或汇报完成前调用对应等待工具；不能把 ID 当作结论，也不能在下一轮重新创建 Manager 后继续使用旧 ID。
 
+## 虚拟显示器任务
+
+Planner 在同一次规划的各个检查点中共同使用一个 `VirtualDisplayAgentManager`。调用 `createVirtualDisplay` 取得 `displayId`。`executeVirtualDisplayTask(displayId, task)` 异步启动绑定该显示器的新 Agent，`waitVirtualDisplayTask(displayId)` 取得结果。Agent 优先使用当前配置组的复杂规划模型，必要时回退到快速廉价应答模型。同一显示器在取回上一轮结果后才接受下一次提交，不同显示器可以并行。用完可调用 `releaseVirtualDisplay`。规划退出时取消剩余任务，等任务退出后释放显示器及其本地帧资源。
+
+创建前须取得 Shizuku 授权。Shizuku UserService 持有 Agent 的受信任显示器，并检查自身的 `ADD_TRUSTED_DISPLAY` 权限。设备还需支持多显示器 Activity、输入注入与跨显示器启动。Agent 仅操作绑定显示器。除启动 Activity 和注入输入外，`dumpVirtualDisplayUi` 通过 Shizuku 读取该屏的可见 UI 树，`inspectVirtualDisplay` 把该屏的截图交给当前配置的快速视觉模型。截图走内存传递。Activity 启动仍受模型安全设置和 Android 的多显示器规则约束。
+
 ## 内存归属
 
 任务表保留已完成结果，直到 Manager 不再被引用。不设过期、结果分页、历史淘汰、全局登记、统一关闭或持久任务队列。

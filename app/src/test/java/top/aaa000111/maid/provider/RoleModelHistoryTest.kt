@@ -111,11 +111,29 @@ class RoleModelHistoryTest {
     }
 
     @Test
-    fun explicitNonReasoningMetadataDoesNotRestoreUnsupportedEffort() {
+    fun clearingEffortRemovesSavedPreferenceAndSurvivesReselectingTheModel() {
+        val prefs = mutablePreferencesOf()
+        val effortKey = stringPreferencesKey("fast_cheap_reasoning_effort")
+        ModelConfigRepository.writeRoleConfig(prefs, role, a)
+        assertEquals("high", prefs[effortKey])
+
+        val cleared = a.copy(reasoningEffort = ModelReasoningEffort.DEFAULT)
+        ModelConfigRepository.writeRoleConfig(prefs, role, cleared)
+        assertEquals(null, prefs[effortKey])
+        assertEquals(cleared, ModelConfigRepository.readConfigsFromPreferences(prefs)[role])
+
+        ModelConfigRepository.writeRoleConfig(prefs, role, b)
+        val history = RoleModelHistory.decode(prefs[historyKey])
+        assertEquals(cleared, RoleModelHistory.selectModel(b, history, LlmModelOption(LlmProvider.OPENAI, "model-a")))
+    }
+
+    @Test
+    fun explicitNonReasoningMetadataStillRestoresManuallyConfiguredEffort() {
         val restored = RoleModelHistory.selectModel(
             b, listOf(a),
             LlmModelOption(LlmProvider.OPENAI, "model-a", metadata = LlmModelMetadata(supportsReasoning = false)),
         )
-        assertEquals(ModelReasoningEffort.DEFAULT, restored.reasoningEffort)
+        assertEquals(a.reasoningEffort, restored.reasoningEffort)
+        assertEquals(false, restored.modelMetadata?.supportsReasoning)
     }
 }

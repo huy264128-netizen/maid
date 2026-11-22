@@ -122,6 +122,8 @@ Planner、DeviceAction 与 ProotLinux 的模型绑定优先使用复杂规划角
 
 新增工具应继续走权限声明、动态注册与执行时校验，避免在 UI 或模型提示词中代替真实权限检查。
 
+[VirtualDisplayManager](../app/src/main/java/top/aaa000111/maid/display/VirtualDisplayManager.kt) 管理使用指定 Surface 的虚拟显示器。无头浏览器复用其私有显示器。Planner 可委托 [VirtualDisplayAgentManager](../app/src/main/java/top/aaa000111/maid/agent/VirtualDisplayAgentManager.kt)，它在创建前检查 Shizuku 授权与后端能力，并按显示器 ID 提交和等待任务。Shizuku UserService 使用 Maid 提供的 Surface 创建并持有受信任的 Agent 显示器。显示器承载独立内容并可被系统枚举，Shizuku 按绑定 ID 读取 UI 树。释放租约或 Maid 进程退出时，UserService 释放显示器。截图分析使用快速视觉模型，输入和观察均绑定到同一显示器。
+
 ## PRoot、终端与端侧模型
 
 `TermuxProotRuntime` 管理应用私有目录中的单一 rootfs。初始化源优先使用用户导入归档，其次是内置归档；无可用归档时可生成最小目录骨架，但骨架不代表完整可运行发行版。

@@ -65,6 +65,13 @@ class VisionToolSet(
             return "读取图片失败：${error.message ?: "未知错误"}"
         } ?: return "无法读取或解析图片 URI：$trimmedInput"
 
+        return analyzeAttachment(attachment, question)
+    }
+
+    internal suspend fun analyzeImageBytes(bytes: ByteArray, mimeType: String, question: String): String =
+        analyzeAttachment(buildBinaryImageAttachment(bytes, mimeType, fileName = null), question)
+
+    private suspend fun analyzeAttachment(attachment: Attachment.Image, question: String): String {
         val binding = runCatching {
             visionBindingProvider?.invoke()
                 ?: ChatAgent.resolveDefaultModelBinding(listOf(ModelRole.FAST_VISION))

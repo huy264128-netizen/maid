@@ -294,16 +294,14 @@ internal class PrivilegedSystemManagers {
         val downTime = SystemClock.uptimeMillis()
         val down = MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, x, y, 0).apply {
             source = InputDevice.SOURCE_TOUCHSCREEN
-            applyDisplayId(this, displayId)
         }
         val upTime = SystemClock.uptimeMillis()
         val up = MotionEvent.obtain(downTime, upTime, MotionEvent.ACTION_UP, x, y, 0).apply {
             source = InputDevice.SOURCE_TOUCHSCREEN
-            applyDisplayId(this, displayId)
         }
         return try {
-            val downOk = injectInputEvent(down, INJECT_MODE_WAIT_FOR_FINISH)
-            val upOk = injectInputEvent(up, INJECT_MODE_WAIT_FOR_FINISH)
+            val downOk = injectInputEventOnDisplay(down, displayId)
+            val upOk = injectInputEventOnDisplay(up, displayId)
             downOk && upOk
         } finally {
             down.recycle()
@@ -325,10 +323,9 @@ internal class PrivilegedSystemManagers {
 
         val down = MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, startX, startY, 0).apply {
             source = InputDevice.SOURCE_TOUCHSCREEN
-            applyDisplayId(this, displayId)
         }
         try {
-            if (!injectInputEvent(down, INJECT_MODE_WAIT_FOR_FINISH)) return false
+            if (!injectInputEventOnDisplay(down, displayId)) return false
         } finally {
             down.recycle()
         }
@@ -348,10 +345,9 @@ internal class PrivilegedSystemManagers {
                 0,
             ).apply {
                 source = InputDevice.SOURCE_TOUCHSCREEN
-                applyDisplayId(this, displayId)
             }
             try {
-                if (!injectInputEvent(move, INJECT_MODE_WAIT_FOR_FINISH)) return false
+                if (!injectInputEventOnDisplay(move, displayId)) return false
             } finally {
                 move.recycle()
             }
@@ -367,10 +363,9 @@ internal class PrivilegedSystemManagers {
             0,
         ).apply {
             source = InputDevice.SOURCE_TOUCHSCREEN
-            applyDisplayId(this, displayId)
         }
         return try {
-            injectInputEvent(up, INJECT_MODE_WAIT_FOR_FINISH)
+            injectInputEventOnDisplay(up, displayId)
         } finally {
             up.recycle()
         }
@@ -394,9 +389,9 @@ internal class PrivilegedSystemManagers {
             0,
             0,
             InputDevice.SOURCE_KEYBOARD,
-        ).also { applyDisplayId(it, displayId) }
+        )
 
-        if (!injectInputEvent(down, INJECT_MODE_WAIT_FOR_FINISH)) return false
+        if (!injectInputEventOnDisplay(down, displayId)) return false
 
         if (longPress) {
             val repeatTime = SystemClock.uptimeMillis()
@@ -411,8 +406,8 @@ internal class PrivilegedSystemManagers {
                 0,
                 KeyEvent.FLAG_LONG_PRESS,
                 InputDevice.SOURCE_KEYBOARD,
-            ).also { applyDisplayId(it, displayId) }
-            if (!injectInputEvent(repeat, INJECT_MODE_WAIT_FOR_FINISH)) return false
+            )
+            if (!injectInputEventOnDisplay(repeat, displayId)) return false
         }
 
         val upTime = SystemClock.uptimeMillis()
@@ -427,9 +422,9 @@ internal class PrivilegedSystemManagers {
             0,
             0,
             InputDevice.SOURCE_KEYBOARD,
-        ).also { applyDisplayId(it, displayId) }
+        )
 
-        return injectInputEvent(up, INJECT_MODE_WAIT_FOR_FINISH)
+        return injectInputEventOnDisplay(up, displayId)
     }
 
     fun injectText(text: String, displayId: Int = 0): Boolean {
@@ -437,20 +432,22 @@ internal class PrivilegedSystemManagers {
         val keyCharacterMap = KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD)
         val events = keyCharacterMap.getEvents(text.toCharArray()) ?: return false
         for (event in events) {
-            applyDisplayId(event, displayId)
-            if (!injectInputEvent(event, INJECT_MODE_WAIT_FOR_FINISH)) {
+            if (!injectInputEventOnDisplay(event, displayId)) {
                 return false
             }
         }
         return true
     }
 
-    private fun applyDisplayId(event: InputEvent, displayId: Int) {
-        if (displayId == 0) return
-        runCatching {
-            val method = InputEvent::class.java.getMethod("setDisplayId", Int::class.javaPrimitiveType)
-            method.invoke(event, displayId)
+    private fun injectInputEventOnDisplay(event: InputEvent, displayId: Int): Boolean {
+        if (displayId != 0) {
+            val targeted = runCatching {
+                val method = InputEvent::class.java.getMethod("setDisplayId", Int::class.javaPrimitiveType)
+                method.invoke(event, displayId)
+            }.isSuccess
+            if (!targeted) return false
         }
+        return injectInputEvent(event, INJECT_MODE_WAIT_FOR_FINISH)
     }
 
     // endregion

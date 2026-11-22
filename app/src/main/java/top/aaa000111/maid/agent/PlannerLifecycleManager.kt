@@ -10,6 +10,7 @@ import kotlinx.coroutines.CancellationException
 import top.aaa000111.maid.chat.ChatSession
 import top.aaa000111.maid.chat.SessionAttachment
 import top.aaa000111.maid.chat.UserInput
+import top.aaa000111.maid.runtime.AppRuntime
 import top.aaa000111.maid.settings.AgentStepConfig
 import top.aaa000111.maid.settings.AgentStepConfigRepository
 import java.util.UUID
@@ -504,6 +505,7 @@ class PlannerLifecycleManager(
         )
 
         var lastNonEmptySummary = ""
+        val virtualDisplays = AppRuntime.createVirtualDisplayAgentManager()
         try {
             val safeMaxCheckpoints = resolveMaxCheckpoints()
             for (stepNumber in 1..safeMaxCheckpoints) {
@@ -543,6 +545,7 @@ class PlannerLifecycleManager(
                     imageUris = stepImages,
                     controlToolSet = controlToolSet,
                     maxCheckpoints = safeMaxCheckpoints,
+                    virtualDisplays = virtualDisplays,
                 )
 
                 when (outcome) {
@@ -625,6 +628,7 @@ class PlannerLifecycleManager(
         } finally {
             session?.exitPlanning()
             activeMemories.remove(memory.planId)
+            virtualDisplays?.close()
         }
     }
 

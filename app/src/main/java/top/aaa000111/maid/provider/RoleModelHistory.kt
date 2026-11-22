@@ -54,7 +54,9 @@ internal object RoleModelHistory {
                 put("provider", JsonPrimitive(requireNotNull(selection.provider).id))
                 put("model", JsonPrimitive(selection.normalizedModelId))
                 selection.normalizedCustomProviderId?.let { put("custom_provider_id", JsonPrimitive(it)) }
-                put("reasoning_effort", JsonPrimitive(selection.reasoningEffort.id))
+                if (selection.reasoningEffort != ModelReasoningEffort.DEFAULT) {
+                    put("reasoning_effort", JsonPrimitive(selection.reasoningEffort.id))
+                }
                 selection.modelMetadata?.let { meta ->
                     meta.contextLength?.let { put("context_length", JsonPrimitive(it)) }
                     meta.supportsVision?.let { put("vision", JsonPrimitive(it)) }

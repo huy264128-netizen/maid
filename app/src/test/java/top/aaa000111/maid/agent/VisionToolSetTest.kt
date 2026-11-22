@@ -107,6 +107,23 @@ class VisionToolSetTest {
     }
 
     @Test
+    fun analyzeImageBytesSendsAnInMemoryAttachment() = runBlocking {
+        val frame = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47)
+        val executor = FakeVisionExecutor("virtual display")
+        val vision = VisionToolSet(
+            visionBindingProvider = { ChatModelBinding(executor, visionModel, LlmProvider.OPENAI) },
+        )
+
+        assertEquals("virtual display", vision.analyzeImageBytes(frame, "image/png", "Inspect the display"))
+        val user = executor.capturedPrompts.single().messages.filterIsInstance<Message.User>().single()
+        val image = user.attachments.single() as Attachment.Image
+        assertEquals("Inspect the display", user.content)
+        assertEquals("image/png", image.mimeType)
+        assertEquals(null, image.fileName)
+        assertEquals(frame.toList(), (image.content as AttachmentContent.Binary.Bytes).asBytes().toList())
+    }
+
+    @Test
     fun analyzeImage_supportsHttpsUrlAndDataUriAndHandlesErrorsGracefully() = runBlocking {
         val executor = FakeVisionExecutor(replyText = "远程与内联图片均已解析")
         val toolSet = VisionToolSet(

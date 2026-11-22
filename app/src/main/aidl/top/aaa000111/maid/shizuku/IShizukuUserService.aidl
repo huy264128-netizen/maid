@@ -3,6 +3,7 @@ package top.aaa000111.maid.shizuku;
 import android.content.Intent;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
+import android.view.Surface;
 import top.aaa000111.maid.shizuku.PrivilegedDisplayInfo;
 import top.aaa000111.maid.shizuku.PrivilegedProcessInfo;
 import top.aaa000111.maid.shizuku.ShellCommandResult;
@@ -67,4 +68,11 @@ interface IShizukuUserService {
 
     // Screen capture (streams PNG via ParcelFileDescriptor to avoid Binder size limit)
     boolean captureScreenshot(int displayId, in ParcelFileDescriptor outputFd) = 28;
+
+    String dumpDisplayUi(int displayId, int maxDepth) = 29;
+
+    int createTrustedVirtualDisplay(
+        IBinder owner, String name, int width, int height, int densityDpi, in Surface surface
+    ) = 30;
+    void releaseTrustedVirtualDisplay(IBinder owner) = 31;
 }

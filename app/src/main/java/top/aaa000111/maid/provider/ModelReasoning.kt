@@ -9,9 +9,10 @@ import ai.koog.prompt.message.Message
 import ai.koog.prompt.streaming.StreamFrame
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import top.aaa000111.maid.R
 
 /** DEFAULT 不发送参数，具体等级的有效范围由服务商和模型决定。 */
@@ -34,17 +35,18 @@ enum class ModelReasoningEffort(
     }
 }
 
-/** 仅对已接通 effort 协议的服务商开放，不能从 supportsReasoning 推断参数兼容性。 */
+/** 已选模型允许手动配置，具体档位是否有效由服务商校验。 */
 fun RoleModelSelection.availableReasoningEfforts(): List<ModelReasoningEffort> {
-    if (!isComplete || modelMetadata?.supportsReasoning == false) {
-        return listOf(ModelReasoningEffort.DEFAULT)
-    }
+    if (!isComplete) return listOf(ModelReasoningEffort.DEFAULT)
     return when (provider) {
-        LlmProvider.OPENAI, LlmProvider.CHATGPT, LlmProvider.CUSTOM ->
-            ModelReasoningEffort.entries
-        LlmProvider.OPENROUTER ->
-            ModelReasoningEffort.entries.filter { it != ModelReasoningEffort.MAX }
-        else -> listOf(ModelReasoningEffort.DEFAULT)
+        LlmProvider.ANTHROPIC -> ModelReasoningEffort.entries.filter {
+            it != ModelReasoningEffort.NONE && it != ModelReasoningEffort.MINIMAL
+        }
+        LlmProvider.GEMINI -> ModelReasoningEffort.entries.filter {
+            it != ModelReasoningEffort.NONE && it != ModelReasoningEffort.MAX
+        }
+        LlmProvider.OPENROUTER -> ModelReasoningEffort.entries.filter { it != ModelReasoningEffort.MAX }
+        else -> ModelReasoningEffort.entries
     }
 }
 
@@ -56,29 +58,49 @@ fun RoleModelSelection.withReasoning(executor: PromptExecutor): PromptExecutor {
 }
 
 /**
- * 当前 Koog 快照将 additionalProperties 序列化为 additional_properties。
- * 只提升本项目设置的合法 effort 字段，其余内容维持原样；未来 SDK 已平铺时无需处理。
+ * Koog 的部分客户端把额外参数包装在 additional_properties 或 additionalProperties 中。
+ * 将本项目配置的思考强度移到各 API 所需的位置，保留其他参数。
  */
 internal fun normalizeReasoningRequest(body: String): String? {
     val root = runCatching { Json.parseToJsonElement(body) as? JsonObject }.getOrNull() ?: return null
-    val extra = root["additional_properties"] as? JsonObject ?: return null
     val output = root.toMutableMap()
-    val remaining = extra.toMutableMap()
-    for (key in listOf("reasoning_effort", "reasoning")) {
-        val value = extra[key] ?: continue
-        val effort = if (key == "reasoning_effort") value as? JsonPrimitive
-            else (value as? JsonObject)?.get("effort") as? JsonPrimitive
-        if (ModelReasoningEffort.entries.none {
-                it != ModelReasoningEffort.DEFAULT && it.id == effort?.contentOrNull
-            }
-        ) continue
-        output[key] = value
-        remaining.remove(key)
+    promoteReasoningFields(output, listOf("reasoning_effort", "reasoning", "output_config"))
+    val generationConfig = root["generationConfig"] as? JsonObject
+    if (generationConfig != null) {
+        val config = generationConfig.toMutableMap()
+        promoteReasoningFields(config, listOf("thinkingConfig"))
+        output["generationConfig"] = JsonObject(config)
     }
-    if (remaining.size == extra.size) return null
-    if (remaining.isEmpty()) output.remove("additional_properties")
-    else output["additional_properties"] = JsonObject(remaining)
-    return JsonObject(output).toString()
+    return JsonObject(output).takeIf { it != root }?.toString()
+}
+
+private fun promoteReasoningFields(
+    output: MutableMap<String, JsonElement>,
+    fields: List<String>,
+) {
+    for (extraKey in listOf("additional_properties", "additionalProperties")) {
+        val extra = output[extraKey] as? JsonObject ?: continue
+        val remaining = extra.toMutableMap()
+        for (key in fields) {
+            val value = extra[key] ?: continue
+            val effort = when (key) {
+                "reasoning_effort" -> value as? JsonPrimitive
+                "thinkingConfig" -> (value as? JsonObject)?.get("thinkingLevel") as? JsonPrimitive
+                else -> (value as? JsonObject)?.get("effort") as? JsonPrimitive
+            }
+            if (ModelReasoningEffort.entries.none {
+                    it != ModelReasoningEffort.DEFAULT && it.id.equals(effort?.contentOrNull, ignoreCase = true)
+                }
+            ) continue
+            output[key] = if (key == "thinkingConfig" && value is JsonObject) {
+                JsonObject((output[key] as? JsonObject).orEmpty() + value)
+            } else value
+            remaining.remove(key)
+        }
+        if (remaining.size == extra.size) continue
+        if (remaining.isEmpty()) output.remove(extraKey)
+        else output[extraKey] = JsonObject(remaining)
+    }
 }
 
 /** 按角色绑定包装共享执行器，不将某个角色的强度写入缓存或其他角色。 */
@@ -92,13 +114,27 @@ internal class ReasoningPromptExecutor(
         val additional = prompt.params.additionalProperties.orEmpty().toMutableMap()
         additional.remove("reasoning_effort")
         additional.remove("reasoning")
-        if (provider == LlmProvider.CHATGPT || provider == LlmProvider.OPENROUTER) {
-            additional["reasoning"] = JsonObject(mapOf("effort" to JsonPrimitive(effort.id)))
-        } else {
-            additional["reasoning_effort"] = JsonPrimitive(effort.id)
+        val effortValue = JsonPrimitive(effort.id)
+        when (provider) {
+            LlmProvider.CHATGPT, LlmProvider.OPENROUTER ->
+                additional["reasoning"] = JsonObject(mapOf("effort" to effortValue))
+            LlmProvider.ANTHROPIC ->
+                additional["output_config"] = JsonObject(
+                    (additional["output_config"] as? JsonObject).orEmpty() + ("effort" to effortValue),
+                )
+            LlmProvider.GEMINI ->
+                additional["thinkingConfig"] = JsonObject(
+                    (additional["thinkingConfig"] as? JsonObject).orEmpty() +
+                        ("thinkingLevel" to JsonPrimitive(effort.name)),
+                )
+            else -> additional["reasoning_effort"] = effortValue
         }
         // 推理模型常常不接受 temperature；显式强度由模型使用默认采样设置。
-        return prompt.withParams(prompt.params.copy(temperature = null, additionalProperties = additional))
+        return prompt.withParams(prompt.params.copy(
+            temperature = null,
+            thinkingBudget = if (provider == LlmProvider.GEMINI) null else prompt.params.thinkingBudget,
+            additionalProperties = additional,
+        ))
     }
 
     override suspend fun execute(

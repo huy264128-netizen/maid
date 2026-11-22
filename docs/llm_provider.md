@@ -152,10 +152,10 @@
 - `RoleModelSelection.reasoningEffort` 随角色配置存入 DataStore；缺失或未知值按 `DEFAULT` 读取。`RoleModelHistory` 按角色、具体端点和模型保存历史；切回服务商恢复最近使用的模型，切回模型恢复其强度，首次选择使用默认。
 - 设置页使用四角色表单保存具名配置组。旧版角色配置作为默认组读取。聊天输入区只有一个配置组选单，`activateModelGroup` 在同一次 DataStore 事务中保存当前组并切换四个角色及活动组 ID。配置组保存服务商引用、模型、强度与能力快照，凭据仍由原服务商和端点管理。
 - `AppRuntime.resolveModelBinding` 使用实际命中角色的配置包装原始缓存执行器，`ReasoningPromptExecutor` 在同步、流式、多候选调用前更新请求参数。缓存保留原始执行器，避免角色之间污染。
-- OpenAI 与自定义兼容端点使用 `reasoning_effort`；ChatGPT Responses 和 OpenRouter 使用 `reasoning.effort`。ChatGPT 执行器只从额外属性中提取白名单内的强度，不透传任意额外参数。
-- `DEFAULT` 不包装、不增加请求参数；其他协议或明确不支持推理的模型保持默认。显式选择等级时去掉 temperature，避免推理模型采样参数冲突。
-- 当前 Koog 快照把额外属性序列化为 `additional_properties`。现有 `ReasoningContentPlugin` 在发送前调用 `normalizeReasoningRequest`，只提升合法的 `reasoning_effort` / `reasoning.effort` 字段；SDK 将来直接平铺字段时无需转换。该过程继续保留原有 `reasoning_content` 回填。
-- 当前选单展示接入协议支持的等级集合，不保证每个模型均接受所有等级，实际合法性由服务端校验。新增服务商需单独确认协议并扩展 `availableReasoningEfforts` 与参数映射，不可只凭 `supportsReasoning=true` 发送 OpenAI 参数。
+- OpenAI 兼容端点和 DeepSeek 使用 `reasoning_effort`，ChatGPT Responses 和 OpenRouter 使用 `reasoning.effort`，Anthropic 使用 `output_config.effort`，Gemini 使用 `generationConfig.thinkingConfig.thinkingLevel`。ChatGPT 执行器从额外属性中提取白名单内的强度。
+- 未设置强度时省略保存字段，运行时直接使用原始执行器。旧配置中的 `default` 仍按未设置读取。显式选择等级时会省略 temperature。
+- Koog 的部分客户端把额外属性包装在 `additional_properties` 或 `additionalProperties` 中。`ReasoningContentPlugin` 在发送前调用 `normalizeReasoningRequest`，将有效的档位字段移到各 API 要求的位置，同时保留 `reasoning_content` 回填。
+- 选单在模型选定后提供对应协议的手动档位，实际可用值由服务商校验。
 - 协议依据：[OpenAI 推理指南](https://developers.openai.com/api/docs/guides/reasoning)、[OpenRouter 推理参数](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens)。
 
 ## 6. 接入自检清单

@@ -1,17 +1,19 @@
 package top.aaa000111.maid.provider
 
 import androidx.annotation.StringRes
+import ai.koog.prompt.executor.clients.anthropic.AnthropicClientSettings
+import ai.koog.prompt.executor.clients.anthropic.AnthropicLLMClient
 import ai.koog.prompt.executor.clients.deepseek.DeepSeekLLMClient
+import ai.koog.prompt.executor.clients.google.GoogleLLMClient
 import ai.koog.prompt.executor.clients.openai.OpenAIClientSettings
 import ai.koog.prompt.executor.clients.openai.OpenAILLMClient
 import ai.koog.prompt.executor.clients.openrouter.OpenRouterLLMClient
 import ai.koog.prompt.executor.llms.SingleLLMPromptExecutor
-import ai.koog.prompt.executor.llms.all.simpleAnthropicExecutor
-import ai.koog.prompt.executor.llms.all.simpleGoogleAIExecutor
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.llm.LLMCapability
 import ai.koog.prompt.llm.LLMProvider
 import ai.koog.prompt.llm.LLModel
+import io.ktor.client.HttpClient
 import top.aaa000111.maid.R
 
 /**
@@ -199,8 +201,13 @@ object LlmModelCatalog {
                     baseClient = ProviderHttpClient.createReasoningAwareHttpClient(),
                 ),
             )
-            LlmProvider.ANTHROPIC -> simpleAnthropicExecutor(trimmedKey)
-            LlmProvider.GEMINI -> simpleGoogleAIExecutor(trimmedKey)
+            LlmProvider.ANTHROPIC -> SingleLLMPromptExecutor(createAnthropicClient(trimmedKey))
+            LlmProvider.GEMINI -> SingleLLMPromptExecutor(
+                GoogleLLMClient(
+                    apiKey = trimmedKey,
+                    baseClient = ProviderHttpClient.createReasoningAwareHttpClient(),
+                ),
+            )
             LlmProvider.DEEPSEEK -> SingleLLMPromptExecutor(
                 DeepSeekLLMClient(
                     apiKey = trimmedKey,
@@ -264,6 +271,21 @@ object LlmModelCatalog {
                 }
             }
         }
+    }
+
+    internal fun createAnthropicClient(
+        apiKey: String,
+        baseClient: HttpClient = ProviderHttpClient.createReasoningAwareHttpClient(),
+    ): AnthropicLLMClient {
+        // Koog looks up the wire ID by LLModel. Maid already uses IDs from Anthropic's model list.
+        val modelIds = object : Map<LLModel, String> by emptyMap() {
+            override fun get(key: LLModel): String? = key.id.takeIf { key.provider == LLMProvider.Anthropic }
+        }
+        return AnthropicLLMClient(
+            apiKey = apiKey,
+            settings = AnthropicClientSettings(modelVersionsMap = modelIds),
+            baseClient = baseClient,
+        )
     }
 
     private fun openAiCompatibleExecutor(

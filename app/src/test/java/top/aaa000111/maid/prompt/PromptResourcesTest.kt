@@ -11,6 +11,7 @@ class PromptResourcesTest {
             "chat/session_title.md",
             "planner/system.md",
             "device/system.md",
+            "display/system.md",
             "linux/system.md",
             "research/system.md",
             "vision/system.md",

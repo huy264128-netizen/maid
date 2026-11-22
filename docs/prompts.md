@@ -11,6 +11,7 @@
 | [chat/](../app/src/main/resources/prompts/chat/) | 对话系统提示、会话标题、信息来源、长期记忆开关说明、用户附件与 Persona 引导 |
 | [planner/](../app/src/main/resources/prompts/planner/) | 规划系统提示、设备/Linux/调研委托、异步等待、视觉与云端 API 开关说明 |
 | [device/](../app/src/main/resources/prompts/device/) | 设备执行系统提示、视觉工具选择与步数预算建议 |
+| [display/](../app/src/main/resources/prompts/display/) | 虚拟显示器 Agent 的系统提示 |
 | [linux/](../app/src/main/resources/prompts/linux/) | PRoot 系统提示、共享文件系统说明、内置端侧模型用法与视觉指导 |
 | [research/](../app/src/main/resources/prompts/research/) | 调研系统提示、quick/standard/deep 深度要求与视觉指导 |
 | [vision/](../app/src/main/resources/prompts/vision/) | 独立视觉分析系统提示与默认问题 |

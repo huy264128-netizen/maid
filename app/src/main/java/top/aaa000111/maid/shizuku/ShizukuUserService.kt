@@ -4,9 +4,11 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.IBinder
 import android.os.ParcelFileDescriptor
 import android.os.Process
 import android.view.InputEvent
+import android.view.Surface
 import androidx.annotation.Keep
 import androidx.core.os.BundleCompat
 import java.io.File
@@ -33,12 +35,20 @@ class ShizukuUserService : IShizukuUserService.Stub {
 
     private val systemManagers = PrivilegedSystemManagers()
 
-    @Keep
-    constructor()
+    private val serviceContext: Context?
+    private val trustedDisplays by lazy {
+        TrustedVirtualDisplays(checkNotNull(serviceContext) { "Shizuku did not provide a UserService Context" })
+    }
 
     @Keep
-    @Suppress("UNUSED_PARAMETER")
-    constructor(context: Context)
+    constructor() {
+        serviceContext = null
+    }
+
+    @Keep
+    constructor(context: Context) {
+        serviceContext = context
+    }
 
     override fun destroy() {
         ioExecutor.shutdownNow()
@@ -183,6 +193,20 @@ class ShizukuUserService : IShizukuUserService.Stub {
         ) ?: return false
         return systemManagers.injectInputEvent(event, mode)
     }
+
+    override fun createTrustedVirtualDisplay(
+        owner: IBinder,
+        name: String,
+        width: Int,
+        height: Int,
+        densityDpi: Int,
+        surface: Surface,
+    ): Int = trustedDisplays.create(owner, name, width, height, densityDpi, surface)
+
+    override fun releaseTrustedVirtualDisplay(owner: IBinder) = trustedDisplays.release(owner)
+
+    override fun dumpDisplayUi(displayId: Int, maxDepth: Int): String =
+        DisplayUiHierarchy.dump(displayId, maxDepth)
 
     override fun injectTap(x: Float, y: Float, displayId: Int): Boolean {
         return systemManagers.injectTap(x, y, displayId)

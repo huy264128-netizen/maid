@@ -392,6 +392,9 @@ object AppRuntime {
     internal fun createBrowserUseAgentManager() =
         appContext?.let { top.aaa000111.maid.agent.BrowserUseAgentManager(it) }
 
+    internal fun createVirtualDisplayAgentManager() =
+        appContext?.let { top.aaa000111.maid.agent.VirtualDisplayAgentManager(it) }
+
     internal fun createScheduledTaskToolSet(): top.aaa000111.maid.agent.ScheduledTaskToolSet? {
         if (appContext == null) return null
         return top.aaa000111.maid.agent.ScheduledTaskToolSet(

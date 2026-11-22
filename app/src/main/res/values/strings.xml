@@ -9,7 +9,7 @@
     <string name="model_group_switch_failed">切换配置组失败，请重试。</string>
     <string name="model_group_clear_confirmation">将清除所有已保存的模型配置组和选择记录。</string>
     <string name="settings_reasoning_label">思考强度</string>
-    <string name="settings_reasoning_default">服务端默认</string>
+    <string name="settings_reasoning_default">不设置（服务端默认）</string>
     <string name="settings_reasoning_none">关闭（none）</string>
     <string name="settings_reasoning_minimal">最少（minimal）</string>
     <string name="settings_reasoning_low">低（low）</string>
@@ -18,7 +18,7 @@
     <string name="settings_reasoning_xhigh">极高（xhigh）</string>
     <string name="settings_reasoning_max">最高（max）</string>
     <string name="settings_reasoning_hint">默认不指定强度；较高强度通常会增加耗时和用量。各模型支持的等级不同，不支持的等级可能被服务商拒绝。</string>
-    <string name="settings_reasoning_unavailable">请选择模型。当前仅支持 OpenAI、ChatGPT、自定义 OpenAI 兼容端点和 OpenRouter；已标记不支持推理的模型使用默认设置。</string>
+    <string name="settings_reasoning_unavailable">选择模型后可设置思考强度。</string>
     <string name="app_name">maid</string>
 
     <string name="settings_title">设置</string>

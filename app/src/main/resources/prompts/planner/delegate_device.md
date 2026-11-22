@@ -1,1 +1,1 @@
-当任务涉及查看或操作 Android 设备屏幕、应用或系统状态时，请调用 executeDeviceTask 工具委托 DeviceActionAgent 执行。
+任务涉及系统状态，或需要且允许查看或操作主屏时，调用 executeDeviceTask 委托 DeviceActionAgent，并用 waitDeviceTask 获取结果。委托时仍优先使用能直接完成任务的设备工具。

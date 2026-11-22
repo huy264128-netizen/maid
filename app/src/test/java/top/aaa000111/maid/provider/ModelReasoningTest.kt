@@ -4,6 +4,8 @@ import ai.koog.agents.core.tools.ToolDescriptor
 import ai.koog.prompt.dsl.ModerationResult
 import ai.koog.prompt.dsl.Prompt
 import ai.koog.prompt.dsl.prompt
+import ai.koog.prompt.executor.clients.deepseek.DeepSeekLLMClient
+import ai.koog.prompt.executor.clients.google.GoogleLLMClient
 import ai.koog.prompt.executor.clients.openai.OpenAILLMClient
 import ai.koog.prompt.executor.clients.openrouter.OpenRouterLLMClient
 import ai.koog.prompt.executor.llms.SingleLLMPromptExecutor
@@ -77,20 +79,35 @@ class ModelReasoningTest {
     }
 
     @Test
-    fun defaultAndUnsupportedSelectionsKeepOriginalExecutor() {
+    fun allSelectedModelsAllowAnEffortOrAnUnsetValue() {
         val delegate = RecordingExecutor()
         assertEquals(ModelReasoningEffort.DEFAULT, ModelReasoningEffort.fromId(null))
+        assertEquals(ModelReasoningEffort.DEFAULT, ModelReasoningEffort.fromId(""))
         assertEquals(ModelReasoningEffort.DEFAULT, ModelReasoningEffort.fromId("future-value"))
-        val selection = RoleModelSelection(LlmProvider.OPENAI, "model")
-        assertSame(delegate, selection.withReasoning(delegate))
-        val unsupported = selection.copy(
-            modelMetadata = LlmModelMetadata(supportsReasoning = false),
-            reasoningEffort = ModelReasoningEffort.HIGH,
-        )
-        assertSame(delegate, unsupported.withReasoning(delegate))
-        assertSame(delegate, selection.copy(
-            provider = LlmProvider.GEMINI, reasoningEffort = ModelReasoningEffort.HIGH,
-        ).withReasoning(delegate))
+        for (provider in LlmProvider.entries) {
+            val selection = RoleModelSelection(
+                provider = provider,
+                modelId = "model",
+                modelMetadata = LlmModelMetadata(supportsReasoning = false),
+            )
+            assertTrue(ModelReasoningEffort.HIGH in selection.availableReasoningEfforts())
+            assertTrue(ModelReasoningEffort.DEFAULT in selection.availableReasoningEfforts())
+            assertSame(delegate, selection.withReasoning(delegate))
+        }
+        assertEquals(listOf(ModelReasoningEffort.DEFAULT), RoleModelSelection().availableReasoningEfforts())
+    }
+
+    @Test
+    fun historyRoundTripOmitsClearedEffortAndStillReadsOldDefaults() {
+        val selection = RoleModelSelection(LlmProvider.GROQ, "model", reasoningEffort = ModelReasoningEffort.HIGH)
+        val clearing = selection.copy(reasoningEffort = ModelReasoningEffort.DEFAULT)
+        val history = RoleModelHistory.remember(listOf(selection), clearing)
+        val encoded = RoleModelHistory.encode(history)
+        assertTrue("reasoning_effort" !in encoded)
+        assertEquals(listOf(clearing), RoleModelHistory.decode(encoded))
+        assertEquals(listOf(clearing), RoleModelHistory.decode(
+            """[{"provider":"groq","model":"model","reasoning_effort":"default"}]""",
+        ))
     }
 
     @Test
@@ -183,6 +200,52 @@ class ModelReasoningTest {
                 } else captured?.get("reasoning_effort")
                 assertEquals(captured.toString(), "xhigh", effort?.jsonPrimitive?.content)
                 assertNull(captured?.get("temperature"))
+            }
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test
+    fun nativeProviderClientsSendEffortInTheirApiRequest() = runBlocking {
+        var captured: JsonObject? = null
+        val http = HttpClient(MockEngine { request ->
+            captured = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
+            respond(
+                """{"error":{"message":"test request captured"}}""",
+                HttpStatusCode.BadRequest,
+                headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }) {
+            install(ReasoningContentSupport.ReasoningContentPlugin)
+        }
+        try {
+            val clients = mapOf(
+                LlmProvider.ANTHROPIC to LlmModelCatalog.createAnthropicClient(apiKey = "test-key", baseClient = http),
+                LlmProvider.DEEPSEEK to DeepSeekLLMClient(apiKey = "test-key", baseClient = http),
+                LlmProvider.GEMINI to GoogleLLMClient(apiKey = "test-key", baseClient = http),
+            )
+            for ((provider, client) in clients) {
+                captured = null
+                val modelId = when (provider) {
+                    LlmProvider.ANTHROPIC -> "claude-sonnet-4-6"
+                    LlmProvider.GEMINI -> "gemini-3.5-flash"
+                    else -> "deepseek-chat"
+                }
+                val selection = RoleModelSelection(provider, modelId, reasoningEffort = ModelReasoningEffort.HIGH)
+                val executor = selection.withReasoning(SingleLLMPromptExecutor(client))
+                val model = LlmModelCatalog.resolveKoogModel(provider, modelId)
+                val result = runCatching { executor.execute(testPrompt, model, emptyList()) }
+                assertTrue(result.isFailure)
+                val request = requireNotNull(captured) { "No request for $provider: ${result.exceptionOrNull()}" }
+                val expected = if (provider == LlmProvider.GEMINI) "HIGH" else "high"
+                val actual = when (provider) {
+                    LlmProvider.ANTHROPIC -> request["output_config"]?.jsonObject?.get("effort")
+                    LlmProvider.GEMINI -> request["generationConfig"]?.jsonObject
+                        ?.get("thinkingConfig")?.jsonObject?.get("thinkingLevel")
+                    else -> request["reasoning_effort"]
+                }
+                assertEquals(request.toString(), expected, actual?.jsonPrimitive?.content)
             }
         } finally {
             http.close()

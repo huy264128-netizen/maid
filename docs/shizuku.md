@@ -31,6 +31,7 @@
 | `app/src/main/java/top/aaa000111/maid/shizuku/ShizukuManager.kt` | 主进程统一调用入口（状态流、权限申请、UserService 绑定与全部协程 API） |
 | `app/src/main/java/top/aaa000111/maid/shizuku/ShizukuUserService.kt` | 运行在 Shizuku 特权进程中的 `IShizukuUserService.Stub` 实现 |
 | `app/src/main/java/top/aaa000111/maid/shizuku/PrivilegedSystemManagers.kt` | 反射解析与调用 `IActivityManager` / `IActivityTaskManager` / `IInputManager` / `IWindowManager` |
+| `app/src/main/java/top/aaa000111/maid/shizuku/TrustedVirtualDisplays.kt` | 核对调用方 UID 和服务进程权限，使用 Maid 提供的 Surface 创建受信任显示器，处理显示器与客户端 Binder 的生命周期 |
 | `app/src/main/java/top/aaa000111/maid/shizuku/ShellCommandExecutor.kt` | 可靠单命令执行引擎（三线程并发 I/O，防管道死锁与 Binder 超限） |
 | `app/src/main/java/top/aaa000111/maid/shizuku/ShizukuSystemServiceHelper.kt` | `ServiceManager` 与 `ShizukuBinderWrapper` / `transactRemote` 工具 |
 | `app/src/main/java/top/aaa000111/maid/shizuku/ShizukuModels.kt` | `ShizukuAvailability`、`ShizukuServerInfo`、`ShizukuStatus` |

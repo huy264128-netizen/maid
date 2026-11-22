@@ -6,10 +6,12 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.os.Binder
 import android.os.Bundle
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
 import android.view.InputEvent
+import android.view.Surface
 import androidx.core.content.pm.PackageInfoCompat
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -91,7 +93,7 @@ object ShizukuManager {
             .daemon(false)
             .processNameSuffix(USER_SERVICE_PROCESS_SUFFIX)
             .debuggable(isDebuggable)
-            .version(versionCode)
+            .version(versionCode * 10 + 2) // IPC revision for trusted display ownership.
             .tag(USER_SERVICE_TAG)
             .also { cachedUserServiceArgs = it }
     }
@@ -546,6 +548,32 @@ object ShizukuManager {
             putParcelable(PrivilegedSystemManagers.KEY_INPUT_EVENT, event)
         }
         service.injectInputEvent(bundle, mode)
+    }
+
+    internal class TrustedDisplayLease(
+        val displayId: Int,
+        private val owner: IBinder,
+        private val service: IShizukuUserService,
+    ) {
+        suspend fun release() = withContext(Dispatchers.IO) {
+            if (service.asBinder().isBinderAlive) service.releaseTrustedVirtualDisplay(owner)
+        }
+    }
+
+    internal suspend fun createTrustedVirtualDisplay(
+        name: String,
+        width: Int,
+        height: Int,
+        densityDpi: Int,
+        surface: Surface,
+    ): Result<TrustedDisplayLease> = withUserService { service ->
+        val owner = Binder()
+        val displayId = service.createTrustedVirtualDisplay(owner, name, width, height, densityDpi, surface)
+        TrustedDisplayLease(displayId, owner, service)
+    }
+
+    internal suspend fun dumpDisplayUi(displayId: Int, maxDepth: Int): Result<String> = withUserService { service ->
+        service.dumpDisplayUi(displayId, maxDepth)
     }
 
     suspend fun injectTap(x: Float, y: Float, displayId: Int = 0): Result<Boolean> =

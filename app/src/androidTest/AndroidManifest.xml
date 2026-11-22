@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity
+            android:name="top.aaa000111.maid.display.VirtualDisplayProbeActivity"
+            android:allowEmbedded="true"
+            android:exported="true"
+            android:permission="android.permission.INJECT_EVENTS" />
+        <activity
+            android:name="top.aaa000111.maid.display.VirtualDisplayProbeDetailActivity"
+            android:exported="false" />
+    </application>
+</manifest>

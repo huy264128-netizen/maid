@@ -29,22 +29,30 @@ abstract class AgentManager(
     private val tasks = ConcurrentHashMap<String, Deferred<String>>()
 
     protected suspend fun submitTask(sessionId: String? = null, execute: suspend () -> String): String {
+        val id = UUID.randomUUID().toString()
+        val task = startTask(id, sessionId, execute)
+        tasks[id] = task
+        task.start()
+        return id
+    }
+
+    protected suspend fun startTask(
+        fallbackSessionId: String,
+        sessionId: String? = null,
+        execute: suspend () -> String,
+    ): Deferred<String> {
         val caller = currentCoroutineContext()
         caller.ensureActive()
-        val id = UUID.randomUUID().toString()
         // 工具返回 ID 后任务继续运行，不绑定本次工具调用的 Job，也不登记全局作用域。
-        val task = CoroutineScope(caller.minusKey(Job) + dispatcher).async(start = CoroutineStart.LAZY) {
+        return CoroutineScope(caller.minusKey(Job) + dispatcher).async(start = CoroutineStart.LAZY) {
             val parent = currentCoroutineContext()[TaskExecutionContext]
             val recorder = parent?.recorder ?: LearningRuntime.recorderOrNull()
             val sourceSessionId = sessionId ?: caller[ChatSessionContext]?.session?.id
-                ?: parent?.sessionId ?: id
+                ?: parent?.sessionId ?: fallbackSessionId
             if (recorder != null) {
                 recorder.run(sourceSessionId, agentType, child = parent != null, block = execute)
             } else execute()
         }
-        tasks[id] = task
-        task.start()
-        return id
     }
 
     /** 等待逻辑由基类实现；具体 Manager 以不同的 @Tool 方法名转发，避免同时挂载时重名。 */
@@ -52,11 +60,15 @@ abstract class AgentManager(
         @LLMDescription("Task ID returned by this manager's start tool") taskId: String,
     ): String {
         val task = tasks[taskId] ?: return "Unknown task: $taskId"
+        return awaitTask(taskId, task)
+    }
+
+    protected suspend fun awaitTask(label: String, task: Deferred<String>): String {
         return try {
             task.await()
         } catch (_: CancellationException) {
             currentCoroutineContext().ensureActive()
-            "Task cancelled: $taskId"
+            "Task cancelled: $label"
         } catch (error: Exception) {
             "Task failed: ${error.message ?: error.javaClass.simpleName}"
         }

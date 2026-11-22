@@ -42,6 +42,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import top.aaa000111.maid.display.VirtualDisplayManager
 import top.aaa000111.maid.runtime.TimedWait
 import top.aaa000111.maid.search.RenderedWebPageLoader
 import java.io.ByteArrayInputStream
@@ -96,7 +97,7 @@ internal class HeadlessBrowser private constructor(private val context: Context)
         ?: error("DisplayManager unavailable")
     private lateinit var viewport: Viewport
     private var reader: ImageReader? = null
-    private var display: android.hardware.display.VirtualDisplay? = null
+    private val virtualDisplayManager = VirtualDisplayManager(context)
     private var window: Presentation? = null
     private lateinit var container: FrameLayout
 
@@ -120,16 +121,14 @@ internal class HeadlessBrowser private constructor(private val context: Context)
             }
         }, Handler(Looper.getMainLooper()))
 
-        val target = displays.createVirtualDisplay(
+        val display = virtualDisplayManager.create(
             "Maid browser",
             viewport.widthPx,
             viewport.heightPx,
             viewport.densityDpi,
             images.surface,
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION or DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY,
-        ) ?: error("Unable to create the browser display")
-        display = target
-        val presentation = Presentation(context, target.display)
+        )
+        val presentation = Presentation(context, display)
         window = presentation
         container = FrameLayout(presentation.context)
         presentation.setContentView(container)
@@ -344,8 +343,11 @@ internal class HeadlessBrowser private constructor(private val context: Context)
         frameRequest?.cancel()
         tabs.values.toList().forEach(::disposeTab)
         window?.dismiss()
-        display?.release()
-        reader?.close()
+        try {
+            virtualDisplayManager.close()
+        } finally {
+            reader?.close()
+        }
     }
 
     private fun activate(tab: Tab) {

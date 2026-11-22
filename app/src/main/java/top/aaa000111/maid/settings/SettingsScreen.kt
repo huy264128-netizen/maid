@@ -3294,14 +3294,14 @@ private fun ModelRoleConfigCard(
                 },
             ) {
                 OutlinedTextField(
-                    value = stringResource(
-                        selection.reasoningEffort.takeIf { it in reasoningOptions }
-                            ?.titleRes ?: ModelReasoningEffort.DEFAULT.titleRes,
-                    ),
+                    value = if (selection.reasoningEffort != ModelReasoningEffort.DEFAULT &&
+                        selection.reasoningEffort in reasoningOptions
+                    ) stringResource(selection.reasoningEffort.titleRes) else "",
                     onValueChange = {},
                     readOnly = true,
                     enabled = canSelectReasoning,
                     label = { Text(stringResource(R.string.settings_reasoning_label)) },
+                    placeholder = { Text(stringResource(R.string.settings_reasoning_default)) },
                     trailingIcon = {
                         ExposedDropdownMenuDefaults.TrailingIcon(
                             expanded = reasoningMenuExpanded && canSelectReasoning,

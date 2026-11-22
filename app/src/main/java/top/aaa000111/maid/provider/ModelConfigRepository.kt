@@ -317,8 +317,11 @@ object ModelConfigRepository {
         if (customId != null && customId != CustomProviderProfile.DEFAULT_ID) {
             prefs[customProviderIdPrefKey(role)] = customId
         } else prefs.remove(customProviderIdPrefKey(role))
-        if (provider != null) prefs[reasoningEffortPrefKey(role)] = selection.reasoningEffort.id
-        else prefs.remove(reasoningEffortPrefKey(role))
+        if (selection.isComplete && selection.reasoningEffort != ModelReasoningEffort.DEFAULT) {
+            prefs[reasoningEffortPrefKey(role)] = selection.reasoningEffort.id
+        } else {
+            prefs.remove(reasoningEffortPrefKey(role))
+        }
         val meta = selection.modelMetadata?.takeIf { selection.isComplete }
         meta?.contextLength?.takeIf { it > 0 }?.let { prefs[metaContextLengthPrefKey(role)] = it }
             ?: prefs.remove(metaContextLengthPrefKey(role))
