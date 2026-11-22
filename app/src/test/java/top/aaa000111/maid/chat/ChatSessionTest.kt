@@ -141,6 +141,19 @@ class ChatSessionTest {
     }
 
     @Test
+    fun generatedTitleDoesNotOverwriteExplicitRename() {
+        val session = ChatSession()
+        assertTrue(session.canGenerateTitle())
+        session.updateTitleIfDefault("日志排查请求")
+
+        session.rename("新对话 2")
+        session.applyGeneratedTitle("日志分析")
+
+        assertFalse(session.updateTitleIfDefault("另一个问题"))
+        assertEquals("新对话 2", session.title)
+    }
+
+    @Test
     fun historyAndPrompt_seedAppendRecordBuildPromptAndClear() {
         val session = ChatSession()
 

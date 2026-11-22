@@ -8,6 +8,7 @@ class PromptResourcesTest {
     @Test fun bundledPromptsLoadFromTheMainClasspathWithoutAndroidContext() {
         val paths = listOf(
             "chat/system.md",
+            "chat/session_title.md",
             "planner/system.md",
             "device/system.md",
             "linux/system.md",

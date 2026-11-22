@@ -18,6 +18,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -88,6 +89,43 @@ class ChatTaskDispatcherTest {
     @After
     fun tearDown() {
         MaidMemoryManager.resetForTest()
+    }
+
+    @Test
+    fun firstReplyGeneratesTitleForTheOriginalSessionInTheBackground() = runBlocking {
+        val titleStarted = CompletableDeferred<String>()
+        val generatedTitle = CompletableDeferred<String>()
+        val executor = SuspendingPromptExecutor { _, _ ->
+            listOf(Message.Assistant(content = "回复", metaInfo = ResponseMetaInfo.Empty))
+        }
+        val dispatcher = ChatTaskDispatcher(
+            chatAgent = ChatAgent(promptExecutor = executor, model = testModel, enableMemory = false),
+            availabilityChecker = { ChatModelAvailability.Ready },
+            taskRecorder = recorder,
+            sessionTitleGenerator = {
+                titleStarted.complete(it)
+                generatedTitle.await()
+            },
+        )
+        try {
+            val session = dispatcher.ensureInitialSession("新对话")
+            val firstMessage = "帮我分析一段日志"
+            assertTrue(dispatcher.submitInput(session, UserInput(text = firstMessage)))
+
+            withTimeout(5_000L) {
+                assertEquals(firstMessage, titleStarted.await())
+                dispatcher.awaitActiveTurn(session.id)
+                assertEquals(firstMessage, session.title)
+                val other = dispatcher.createNewSession("新对话")
+                dispatcher.markActiveSession(other.id)
+
+                generatedTitle.complete("“日志分析”\n多余说明")
+                session.state.first { it.title == "日志分析" }
+                assertEquals("新对话 2", other.title)
+            }
+        } finally {
+            dispatcher.shutdown()
+        }
     }
 
     @Test

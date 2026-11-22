@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import top.aaa000111.maid.agent.ChatAgentManager
 import top.aaa000111.maid.agent.ChatAgent
 import top.aaa000111.maid.provider.LlmProvider
@@ -56,6 +57,7 @@ class ChatTaskDispatcher(
     private val sessionStore: ChatSessionStore? = null,
     private val taskRecorder: TaskRecorder? = null,
     chatManager: ChatAgentManager? = null,
+    private val sessionTitleGenerator: (suspend (String) -> String?)? = null,
 ) {
     val agentManager = chatManager ?: ChatAgentManager(chatAgent ?: ChatAgent(), workerDispatcher)
     private val scopeJob = SupervisorJob()
@@ -252,7 +254,12 @@ class ChatTaskDispatcher(
     )
 
     private fun persistSession(snapshot: PersistedChatSession) {
-        sessionStore?.enqueueSave(snapshot)
+        val store = sessionStore ?: return
+        synchronized(sessionLock) {
+            // 回调可能由不同协程发出，始终保存当前快照并跳过已删除的会话。
+            val session = findSession(snapshot.id) ?: return
+            store.enqueueSave(session.toPersistedSnapshot())
+        }
     }
 
     fun findSession(sessionId: String): ChatSession? {
@@ -310,7 +317,9 @@ class ChatTaskDispatcher(
             lateinit var launchedJob: Job
             launchedJob = executionScope.launch(start = CoroutineStart.LAZY) {
                 try {
-                    withTaskEvidence(session.id) {
+                    val shouldGenerateTitle = sessionTitleGenerator != null &&
+                        normalized.text.isNotBlank() && session.canGenerateTitle()
+                    val reply = withTaskEvidence(session.id) {
                         when (val availability = availabilityChecker.checkAvailability()) {
                             is ChatModelAvailability.Unavailable -> {
                                 val inputItem = session.appendUserItem(
@@ -327,13 +336,16 @@ class ChatTaskDispatcher(
                                     isError = true,
                                 )
                                 (taskRecorder ?: LearningRuntime.recorderOrNull())?.rejectCurrent("model_unavailable")
-                                return@withTaskEvidence
+                                return@withTaskEvidence null
                             }
 
                             ChatModelAvailability.Ready -> Unit
                         }
 
-                        session.input(normalized, chatManager = agentManager)
+                        session.input(normalized, chatManager = agentManager) as? ChatInputResult.ModelReplied
+                    }
+                    if (shouldGenerateTitle && !reply?.reply?.content.isNullOrBlank()) {
+                        launchSessionTitleGeneration(session, normalized.text)
                     }
                 } catch (e: CancellationException) {
                     throw e
@@ -355,6 +367,25 @@ class ChatTaskDispatcher(
             _runningSessionIds.update { it + session.id }
             launchedJob.start()
             return true
+        }
+    }
+
+    private fun launchSessionTitleGeneration(session: ChatSession, firstMessage: String) {
+        val generateTitle = sessionTitleGenerator ?: return
+        executionScope.launch {
+            if (findSession(session.id) !== session || session.hasExplicitTitle()) return@launch
+            val title = try {
+                withTimeoutOrNull(10_000L) { generateTitle(firstMessage) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            } ?: return@launch
+            synchronized(sessionLock) {
+                if (findSession(session.id) === session) {
+                    session.applyGeneratedTitle(title)
+                }
+            }
         }
     }
 
@@ -480,6 +511,7 @@ object ChatBackgroundRuntime {
         }
         return ChatTaskDispatcher(
             availabilityChecker = availabilityChecker,
+            sessionTitleGenerator = ::generateSessionTitle,
             sessionStore = if (ChatSessionRepository.isReady) ChatSessionRepository else null,
         )
     }

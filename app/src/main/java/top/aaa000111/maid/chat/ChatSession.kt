@@ -212,6 +212,7 @@ class ChatSession(
     }
 
     private val stateLock = Any()
+    private var explicitlyNamed = false
     private val turnMutex = Mutex()
     private val pendingQuestionDisplayFlags = ArrayDeque<Boolean>()
     private val pendingPermissionRequests = LinkedHashMap<String, PendingPermissionRequestEntry>()
@@ -1584,9 +1585,33 @@ class ChatSession(
         val normalized = newTitle.trim()
         if (normalized.isEmpty()) return
         updateState(touchTimestamp = touchTimestamp) { current ->
+            explicitlyNamed = true
             if (current.title == normalized) current else current.copy(title = normalized)
         }
     }
+
+    internal fun canGenerateTitle(): Boolean = synchronized(stateLock) {
+        val current = _state.value
+        !explicitlyNamed && isDefaultTitle(current.title, defaultTitlePrefix) &&
+            current.items.none { it is ChatItem.UserMessage }
+    }
+
+    internal fun hasExplicitTitle(): Boolean = synchronized(stateLock) { explicitlyNamed }
+
+    internal fun applyGeneratedTitle(title: String) {
+        val normalized = title.lineSequence().firstOrNull { it.isNotBlank() }
+            ?.trim()?.trim('"', '“', '”')?.trim().orEmpty()
+        if (normalized.isEmpty()) return
+        updateState(touchTimestamp = false) { current ->
+            if (explicitlyNamed) return@updateState current
+            explicitlyNamed = true
+            val end = normalized.offsetByCodePoints(0, normalized.codePointCount(0, normalized.length).coerceAtMost(40))
+            current.copy(title = normalized.substring(0, end))
+        }
+    }
+
+    private fun isDefaultTitle(title: String, prefix: String): Boolean =
+        title == prefix || (title.startsWith("$prefix ") && title.removePrefix("$prefix ").toIntOrNull() != null)
 
     /**
      * 若当前会话仍使用默认标题前缀，则根据首条用户输入内容（或附带文件/图片占位提示）生成简短标题。
@@ -1625,7 +1650,7 @@ class ChatSession(
         if (normalizedPrompt.isEmpty()) return false
         var updated = false
         updateState(touchTimestamp = touchTimestamp) { current ->
-            if (!current.title.startsWith(defaultTitlePrefix)) {
+            if (explicitlyNamed || !isDefaultTitle(current.title, defaultTitlePrefix)) {
                 return@updateState current
             }
             val singleLine = normalizedPrompt.replace('\n', ' ')
