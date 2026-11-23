@@ -506,6 +506,7 @@ class PlannerLifecycleManager(
 
         var lastNonEmptySummary = ""
         val virtualDisplays = AppRuntime.createVirtualDisplayAgentManager()
+        val imageGen = session?.let(AppRuntime::createImageGenAgentManager)
         try {
             val safeMaxCheckpoints = resolveMaxCheckpoints()
             for (stepNumber in 1..safeMaxCheckpoints) {
@@ -546,6 +547,7 @@ class PlannerLifecycleManager(
                     controlToolSet = controlToolSet,
                     maxCheckpoints = safeMaxCheckpoints,
                     virtualDisplays = virtualDisplays,
+                    imageGen = imageGen,
                 )
 
                 when (outcome) {

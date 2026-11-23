@@ -315,3 +315,23 @@ object LlmModelCatalog {
         return trimmed.removeSuffix("/models").removeSuffix("/v1").trimEnd('/')
     }
 }
+
+/** 单独的默认图片生成目标，不参与聊天模型配置组。 */
+data class ImageGenModelSelection(
+    val provider: LlmProvider? = null,
+    val modelId: String = "",
+    val customProviderId: String? = null,
+) {
+    val normalizedModelId: String
+        get() = modelId.trim()
+
+    val normalizedCustomProviderId: String?
+        get() = if (provider == LlmProvider.CUSTOM) {
+            customProviderId?.trim()?.takeIf { it.isNotEmpty() } ?: CustomProviderProfile.DEFAULT_ID
+        } else {
+            null
+        }
+
+    val isConfigured: Boolean
+        get() = provider != null && normalizedModelId.isNotEmpty()
+}

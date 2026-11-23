@@ -11,6 +11,7 @@ import android.os.Looper
 import android.os.Process
 import android.view.Display
 import android.view.Surface
+import android.annotation.SuppressLint
 
 /** The UserService owns the platform displays and releases them when the client binder dies. */
 internal class TrustedVirtualDisplays(private val appContext: Context) {
@@ -23,6 +24,7 @@ internal class TrustedVirtualDisplays(private val appContext: Context) {
     private val ownedDisplays = mutableMapOf<IBinder, Entry>()
     private val handler = Handler(Looper.getMainLooper())
 
+    @SuppressLint("WrongConstant")
     @Synchronized
     fun create(owner: IBinder, name: String, width: Int, height: Int, densityDpi: Int, surface: Surface): Int {
         var committed = false

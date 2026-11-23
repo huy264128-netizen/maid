@@ -34,10 +34,12 @@ import top.aaa000111.maid.settings.PersonaRepository
 import top.aaa000111.maid.shizuku.ShizukuManager
 import top.aaa000111.maid.shizuku.ShizukuStatus
 import top.aaa000111.maid.agent.DeviceActionAgent
+import top.aaa000111.maid.agent.ImageGenAgentManager
 import top.aaa000111.maid.agent.ProotLinuxAgentLifecycleManager
 import top.aaa000111.maid.agent.VisionToolSet
 import top.aaa000111.maid.androidtool.PrivilegeManager
 import top.aaa000111.maid.chat.ChatBackgroundRuntime
+import top.aaa000111.maid.chat.ChatSession
 import top.aaa000111.maid.chat.ChatSessionRepository
 import top.aaa000111.maid.proot.ProotVtfxTerminalManager
 import top.aaa000111.maid.proot.TermuxProotRuntime
@@ -388,6 +390,14 @@ object AppRuntime {
             ).also { sharedScheduledTaskExecutor = it }
         }
     }
+
+    internal fun createImageGenAgentManager(session: ChatSession) =
+        appContext?.let { context ->
+            val dispatcher = ChatBackgroundRuntime.current
+            ImageGenAgentManager(session, context.cacheDir) {
+                dispatcher.findSession(session.id) === session
+            }
+        }
 
     internal fun createBrowserUseAgentManager() =
         appContext?.let { top.aaa000111.maid.agent.BrowserUseAgentManager(it) }

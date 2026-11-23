@@ -136,6 +136,12 @@ Linux Agent 建议使用 `/root/<session id>/` 工作目录，但代码明确允
 
 `TinyModelLocalBridge` 提供仅监听 `127.0.0.1` 的本地 HTTP 桥接；`ProotLlmApiEnv` 则处理 Linux 任务的模型环境配置。这些连接涉及凭据和进程生命周期，修改时避免把环境变量中的秘密写入日志。
 
+## 端侧语音识别
+
+[Asr.kt](../app/src/main/java/top/aaa000111/maid/asr/Asr.kt) 提供挂起方法 `Asr.transcribe(samples, sampleRate, modelDirectory)`。输入为单声道、归一化到 `[-1, 1]` 的浮点 PCM 和实际采样率，返回整段转写文本。调用期间保持采样数组不变。短于一帧（25 ms）的输入返回空字符串。
+
+聊天语音输入使用 [SenseVoice Small INT8](https://k2-fsa.github.io/sherpa/onnx/sense-voice/pretrained.html)。`BundledVoiceModel` 首次转写时在后台将 APK 中的 `model.int8.onnx` 和 `tokens.txt` 复制到私有目录，复制完成后才启用。若已有完整的手动导入模型则复用。识别在后台串行运行，同一模型目录复用识别器，每段音频的原生流在调用结束时释放。
+
 ## 搜索
 
 `SearchEngineRouter` 按搜索分类组织引擎，负责可用性探测、同分类回退、多引擎聚合与去重。`WebPageFetcher` 使用 Ksoup 提取正文，`SearchResultFilter` 提供规则或 TinyModel 过滤。`ProotSearXngManager` 管理本地 PRoot 中的 SearXNG 服务。

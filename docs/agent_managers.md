@@ -46,6 +46,10 @@ ChatAgent 挂载 Planner 和 Research Manager，PlannerAgent 挂载 Device、Lin
 
 每次构造上层 Agent 的工具集时创建对应 Manager，ID 只属于同一个 Manager 实例。模型需在依赖结果、推进检查点或汇报完成前调用对应等待工具；不能把 ID 当作结论，也不能在下一轮重新创建 Manager 后继续使用旧 ID。
 
+## 图片生成任务
+
+ChatAgent 在单轮内持有 `ImageGenAgentManager`，Planner 在同一次规划的各检查点共享同一个实例。`listImageGenTargets` 读取本地已配置的服务商、自定义档案和默认模型。模型选择页可配置默认图片服务商/端点与模型 ID；`generateImage` 的服务商和模型参数可以省略以使用默认值，也可以按任务覆盖。生成任务异步提交，`waitImageGeneration(taskId)` 成功时返回发起会话的图片附件 ID。图片沿用会话附件存储并显示为图片卡片。会话切换后任务继续，删除原会话后结果不会交付给其他会话。
+
 ## 虚拟显示器任务
 
 Planner 在同一次规划的各个检查点中共同使用一个 `VirtualDisplayAgentManager`。调用 `createVirtualDisplay` 取得 `displayId`。`executeVirtualDisplayTask(displayId, task)` 异步启动绑定该显示器的新 Agent，`waitVirtualDisplayTask(displayId)` 取得结果。Agent 优先使用当前配置组的复杂规划模型，必要时回退到快速廉价应答模型。同一显示器在取回上一轮结果后才接受下一次提交，不同显示器可以并行。用完可调用 `releaseVirtualDisplay`。规划退出时取消剩余任务，等任务退出后释放显示器及其本地帧资源。

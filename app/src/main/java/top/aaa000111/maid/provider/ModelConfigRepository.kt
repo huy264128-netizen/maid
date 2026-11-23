@@ -246,6 +246,46 @@ object ModelConfigRepository {
     fun observeModelGroups(): Flow<ModelGroups> =
         requireContext().modelConfigDataStore.data.map(::readModelGroups).flowOn(Dispatchers.IO)
 
+    fun observeImageGenModelSelection(): Flow<ImageGenModelSelection> =
+        requireContext().modelConfigDataStore.data.map(::readImageGenModelSelection).flowOn(Dispatchers.IO)
+
+    suspend fun getImageGenModelSelection(): ImageGenModelSelection = withContext(Dispatchers.IO) {
+        readImageGenModelSelection(requireContext().modelConfigDataStore.data.first())
+    }
+
+    suspend fun saveImageGenModelSelection(selection: ImageGenModelSelection) {
+        withContext(Dispatchers.IO) {
+            requireContext().modelConfigDataStore.edit { prefs ->
+                val provider = selection.provider?.takeIf { it in imageGenProviders }
+                if (provider == null) {
+                    prefs.remove(imageGenProviderKey)
+                    prefs.remove(imageGenModelKey)
+                    prefs.remove(imageGenCustomProviderIdKey)
+                } else {
+                    prefs[imageGenProviderKey] = provider.id
+                    selection.normalizedModelId.takeIf { it.isNotEmpty() }?.let {
+                        prefs[imageGenModelKey] = it
+                    } ?: prefs.remove(imageGenModelKey)
+                    selection.normalizedCustomProviderId?.takeIf { it != CustomProviderProfile.DEFAULT_ID }?.let {
+                        prefs[imageGenCustomProviderIdKey] = it
+                    } ?: prefs.remove(imageGenCustomProviderIdKey)
+                }
+            }
+        }
+    }
+
+    private fun readImageGenModelSelection(prefs: Preferences): ImageGenModelSelection {
+        val provider = prefs[imageGenProviderKey]?.let { id -> imageGenProviders.firstOrNull { it.id == id } }
+            ?: return ImageGenModelSelection()
+        return ImageGenModelSelection(
+            provider = provider,
+            modelId = prefs[imageGenModelKey].orEmpty(),
+            customProviderId = if (provider == LlmProvider.CUSTOM) {
+                prefs[imageGenCustomProviderIdKey] ?: CustomProviderProfile.DEFAULT_ID
+            } else null,
+        )
+    }
+
     suspend fun activateModelGroup(id: String) {
         requireContext().modelConfigDataStore.edit { prefs ->
             val state = readModelGroups(prefs)
@@ -445,6 +485,16 @@ object ModelConfigRepository {
 
     private val groupsKey = stringPreferencesKey("model_groups_json")
     private val activeGroupKey = stringPreferencesKey("active_model_group_id")
+    private val imageGenProviderKey = stringPreferencesKey("image_gen_provider")
+    private val imageGenModelKey = stringPreferencesKey("image_gen_model")
+    private val imageGenCustomProviderIdKey = stringPreferencesKey("image_gen_custom_provider_id")
+    private val imageGenProviders = setOf(
+        LlmProvider.OPENAI,
+        LlmProvider.GEMINI,
+        LlmProvider.XAI,
+        LlmProvider.OPENROUTER,
+        LlmProvider.CUSTOM,
+    )
 
     private fun historyPrefKey(role: ModelRole) =
         stringPreferencesKey("${role.keyPrefix}_selection_history")

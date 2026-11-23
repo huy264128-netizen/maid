@@ -208,6 +208,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         inputText.value = value
     }
 
+    fun appendVoiceText(sessionId: String, text: String) {
+        if (currentSessionId.value != sessionId) return
+        val draft = inputText.value.trimEnd()
+        inputText.value = if (draft.isEmpty()) text else "$draft $text"
+    }
+
     fun addFileUris(uris: List<String>) {
         val cleaned = uris.map { it.trim() }.filter { it.isNotEmpty() }
         if (cleaned.isEmpty()) return

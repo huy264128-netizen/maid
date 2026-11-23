@@ -96,6 +96,7 @@ import top.aaa000111.maid.provider.LlmKeyRepository
 import top.aaa000111.maid.provider.LlmModelOption
 import top.aaa000111.maid.provider.LlmProvider
 import top.aaa000111.maid.provider.ModelProviderTarget
+import top.aaa000111.maid.provider.ImageGenModelSelection
 import top.aaa000111.maid.provider.ModelReasoningEffort
 import top.aaa000111.maid.provider.availableReasoningEfforts
 import top.aaa000111.maid.provider.ModelRole
@@ -144,6 +145,7 @@ fun SettingsScreen(
     onNavigateBack: () -> Unit,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val voiceCleanupEnabled by viewModel.voiceCleanupEnabled.collectAsStateWithLifecycle(initialValue = false)
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
     val resources = LocalResources.current
@@ -224,7 +226,6 @@ fun SettingsScreen(
         onOpenChatGptAuth = { currentDestination = SettingsDestination.CHATGPT_AUTH },
         onOpenModelConfig = {
             viewModel.resetDraftModelConfigsToSaved()
-            viewModel.refreshSelectedProviderModels()
             currentDestination = SettingsDestination.MODEL_CONFIG
         },
         onOpenTinyModel = {
@@ -255,9 +256,14 @@ fun SettingsScreen(
         onClearApiKey = viewModel::clearApiKey,
         onSelectModelProvider = viewModel::onSelectModelProvider,
         onSelectModelId = viewModel::onSelectModelId,
+        onSelectImageGenProvider = viewModel::onSelectImageGenProvider,
+        onImageGenModelIdChanged = viewModel::onImageGenModelIdChanged,
         onSelectReasoningEffort = viewModel::onSelectReasoningEffort,
+        onLoadProviderModels = { provider, customId ->
+            viewModel.fetchModelsForProvider(provider, customId, forceRefresh = false)
+        },
         onRefreshProviderModels = { provider, customId ->
-            viewModel.fetchModelsForProvider(provider, customId)
+            viewModel.fetchModelsForProvider(provider, customId, forceRefresh = true)
         },
         onSaveModelConfigs = { viewModel.saveModelConfigs() },
         onSaveModelGroup = { viewModel.saveModelConfigs(it) },
@@ -275,6 +281,8 @@ fun SettingsScreen(
         onPlannerStepInputChanged = viewModel::onPlannerStepInputChanged,
         onPlannerCheckpointInputChanged = viewModel::onPlannerCheckpointInputChanged,
         onDeviceActionStepInputChanged = viewModel::onDeviceActionStepInputChanged,
+        voiceCleanupEnabled = voiceCleanupEnabled,
+        onToggleVoiceCleanup = viewModel::setVoiceCleanupEnabled,
         onToggleCrossChatMemory = viewModel::setCrossChatMemoryEnabled,
         onSelectModelOutputDisplayMode = viewModel::setModelOutputDisplayMode,
         onSaveAgentStepConfigs = viewModel::saveAgentStepConfigs,
@@ -344,8 +352,11 @@ fun SettingsScreenContent(
     onClearApiKey: () -> Unit,
     onSelectModelProvider: (ModelRole, ModelProviderTarget?) -> Unit,
     onSelectModelId: (ModelRole, String) -> Unit,
+    onSelectImageGenProvider: (ModelProviderTarget?) -> Unit = {},
+    onImageGenModelIdChanged: (String) -> Unit = {},
     onSelectReasoningEffort: (ModelRole, ModelReasoningEffort) -> Unit = { _, _ -> },
     onRefreshProviderModels: (LlmProvider, String?) -> Unit,
+    onLoadProviderModels: (LlmProvider, String?) -> Unit = { _, _ -> },
     onSaveModelConfigs: () -> Unit,
     onSaveModelGroup: (String) -> Unit = {},
     onCreateModelGroup: () -> Unit = {},
@@ -370,6 +381,8 @@ fun SettingsScreenContent(
     onPlannerStepInputChanged: (String) -> Unit = {},
     onPlannerCheckpointInputChanged: (String) -> Unit = {},
     onDeviceActionStepInputChanged: (String) -> Unit = {},
+    voiceCleanupEnabled: Boolean = false,
+    onToggleVoiceCleanup: (Boolean) -> Unit = {},
     onToggleCrossChatMemory: (Boolean) -> Unit = {},
     onSelectModelOutputDisplayMode: (ModelOutputDisplayMode) -> Unit = {},
     onSaveAgentStepConfigs: () -> Unit = {},
@@ -502,6 +515,8 @@ fun SettingsScreenContent(
                         onOpenTinyModel = onOpenTinyModel,
                         onOpenSearchSettings = onOpenSearchSettings,
                         onOpenAgentSteps = onOpenAgentSteps,
+                        voiceCleanupEnabled = voiceCleanupEnabled,
+                        onToggleVoiceCleanup = onToggleVoiceCleanup,
                         onToggleCrossChatMemory = onToggleCrossChatMemory,
                         onSelectModelOutputDisplayMode = onSelectModelOutputDisplayMode,
                         onOpenPersona = onOpenPersona,
@@ -548,8 +563,11 @@ fun SettingsScreenContent(
                         onOpenChatGptAuth = onOpenChatGptAuth,
                         onSelectModelProvider = onSelectModelProvider,
                         onSelectModelId = onSelectModelId,
+                        onSelectImageGenProvider = onSelectImageGenProvider,
+                        onImageGenModelIdChanged = onImageGenModelIdChanged,
                         onSelectReasoningEffort = onSelectReasoningEffort,
                         onRefreshProviderModels = onRefreshProviderModels,
+                        onLoadProviderModels = onLoadProviderModels,
                         onSaveModelConfigs = onSaveModelConfigs,
                         onSaveModelGroup = onSaveModelGroup,
                         onCreateModelGroup = onCreateModelGroup,
@@ -679,6 +697,8 @@ private fun SettingsHomeList(
     onOpenAgentSteps: () -> Unit,
     onOpenPersona: () -> Unit,
     onOpenPrivileges: () -> Unit,
+    voiceCleanupEnabled: Boolean = false,
+    onToggleVoiceCleanup: (Boolean) -> Unit = {},
     onToggleCrossChatMemory: (Boolean) -> Unit = {},
     onSelectModelOutputDisplayMode: (ModelOutputDisplayMode) -> Unit = {},
     onOpenModelSafety: () -> Unit = {},
@@ -988,6 +1008,34 @@ private fun SettingsHomeList(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable(onClick = onOpenSearchSettings),
+            )
+        }
+
+        item {
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_voice_cleanup_title)) },
+                supportingContent = { Text(stringResource(R.string.settings_voice_cleanup_summary)) },
+                leadingContent = {
+                    Surface(
+                        shape = MaterialTheme.shapes.medium,
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_mic),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier
+                                .padding(8.dp)
+                                .size(20.dp),
+                        )
+                    }
+                },
+                trailingContent = {
+                    Switch(
+                        checked = voiceCleanupEnabled,
+                        onCheckedChange = onToggleVoiceCleanup,
+                    )
+                },
             )
         }
 
@@ -2733,8 +2781,11 @@ private fun ModelSelectionContent(
     onOpenChatGptAuth: () -> Unit,
     onSelectModelProvider: (ModelRole, ModelProviderTarget?) -> Unit,
     onSelectModelId: (ModelRole, String) -> Unit,
+    onSelectImageGenProvider: (ModelProviderTarget?) -> Unit = {},
+    onImageGenModelIdChanged: (String) -> Unit = {},
     onSelectReasoningEffort: (ModelRole, ModelReasoningEffort) -> Unit = { _, _ -> },
     onRefreshProviderModels: (LlmProvider, String?) -> Unit,
+    onLoadProviderModels: (LlmProvider, String?) -> Unit = { _, _ -> },
     onSaveModelConfigs: () -> Unit,
     onSaveModelGroup: (String) -> Unit = {},
     onCreateModelGroup: () -> Unit = {},
@@ -2777,9 +2828,9 @@ private fun ModelSelectionContent(
     LaunchedEffect(uiState.modelGroups.activeId, draftTargets, configuredTargets) {
         draftTargets.forEach { (provider, customId) ->
             val key = ModelProviderTarget.providerCacheKey(provider, customId)
-            if (configuredTargets.any { it.cacheKey == key } &&
-                key !in uiState.remoteModelsByProvider && key !in uiState.modelFetchErrors
-            ) onRefreshProviderModels(provider, customId)
+            if (configuredTargets.any { it.cacheKey == key }) {
+                onLoadProviderModels(provider, customId)
+            }
         }
     }
 
@@ -2960,6 +3011,16 @@ private fun ModelSelectionContent(
             )
         }
 
+        ImageGenModelConfigCard(
+            selection = uiState.draftImageGenModelSelection,
+            configuredTargets = configuredTargets.filter {
+                it.provider in setOf(LlmProvider.OPENAI, LlmProvider.GEMINI, LlmProvider.XAI, LlmProvider.OPENROUTER, LlmProvider.CUSTOM)
+            },
+            enabled = !uiState.isSavingModels,
+            onSelectProvider = onSelectImageGenProvider,
+            onModelIdChanged = onImageGenModelIdChanged,
+        )
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -3006,6 +3067,114 @@ private fun ModelSelectionContent(
                 }
                 Text(stringResource(R.string.settings_model_save))
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ImageGenModelConfigCard(
+    selection: ImageGenModelSelection,
+    configuredTargets: List<ModelProviderTarget>,
+    enabled: Boolean,
+    onSelectProvider: (ModelProviderTarget?) -> Unit,
+    onModelIdChanged: (String) -> Unit,
+) {
+    var providerMenuExpanded by remember { mutableStateOf(false) }
+    val selectedTarget = configuredTargets.firstOrNull {
+        it.provider == selection.provider && it.customProviderId == selection.normalizedCustomProviderId
+    }
+    val providerLabel = when {
+        selectedTarget == null -> ""
+        selectedTarget.provider == LlmProvider.CUSTOM ->
+            "${stringResource(LlmProvider.CUSTOM.displayNameRes)} · ${selectedTarget.customDisplayName.orEmpty()}"
+        else -> stringResource(selectedTarget.provider.displayNameRes)
+    }
+
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.settings_image_gen_model_title),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = stringResource(R.string.settings_image_gen_model_desc),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            ExposedDropdownMenuBox(
+                expanded = providerMenuExpanded,
+                onExpandedChange = { if (enabled) providerMenuExpanded = it },
+            ) {
+                OutlinedTextField(
+                    value = providerLabel,
+                    onValueChange = {},
+                    readOnly = true,
+                    enabled = enabled && configuredTargets.isNotEmpty(),
+                    label = { Text(stringResource(R.string.settings_image_gen_provider_label)) },
+                    placeholder = { Text(stringResource(R.string.settings_model_provider_placeholder)) },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = providerMenuExpanded) },
+                    modifier = Modifier
+                        .menuAnchor(
+                            type = ExposedDropdownMenuAnchorType.PrimaryNotEditable,
+                            enabled = enabled && configuredTargets.isNotEmpty(),
+                        )
+                        .fillMaxWidth(),
+                )
+                ExposedDropdownMenu(
+                    expanded = providerMenuExpanded,
+                    onDismissRequest = { providerMenuExpanded = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.settings_image_gen_provider_none)) },
+                        onClick = {
+                            providerMenuExpanded = false
+                            onSelectProvider(null)
+                        },
+                    )
+                    configuredTargets.forEach { target ->
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    if (target.provider == LlmProvider.CUSTOM) {
+                                        "${stringResource(target.provider.displayNameRes)} · ${target.customDisplayName.orEmpty()}"
+                                    } else {
+                                        stringResource(target.provider.displayNameRes)
+                                    },
+                                )
+                            },
+                            onClick = {
+                                providerMenuExpanded = false
+                                onSelectProvider(target)
+                            },
+                        )
+                    }
+                }
+            }
+            OutlinedTextField(
+                value = selection.modelId,
+                onValueChange = onModelIdChanged,
+                enabled = enabled && selection.provider != null,
+                label = { Text(stringResource(R.string.settings_image_gen_model_id_label)) },
+                placeholder = { Text(stringResource(R.string.settings_image_gen_model_id_placeholder)) },
+                supportingText = { Text(stringResource(R.string.settings_image_gen_model_id_help)) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Ascii,
+                    imeAction = ImeAction.Done,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }

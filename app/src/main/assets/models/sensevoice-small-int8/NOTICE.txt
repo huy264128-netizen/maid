@@ -1,0 +1,10 @@
+SenseVoice Small INT8
+
+Original SenseVoiceSmall model: FunAudioLLM / Tongyi Lab, Alibaba Group.
+https://huggingface.co/FunAudioLLM/SenseVoiceSmall
+
+ONNX conversion and INT8 distribution: k2-fsa / sherpa-onnx.
+https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2
+
+FunASR Model Open Source License Agreement:
+https://github.com/modelscope/FunASR/blob/main/MODEL_LICENSE

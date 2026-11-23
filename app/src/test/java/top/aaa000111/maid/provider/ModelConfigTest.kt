@@ -62,6 +62,24 @@ class ModelConfigTest {
     }
 
     @Test
+    fun imageGenModelSelection_normalizesModelAndCustomEndpoint() {
+        val empty = ImageGenModelSelection()
+        assertFalse(empty.isConfigured)
+
+        val configured = ImageGenModelSelection(
+            provider = LlmProvider.CUSTOM,
+            modelId = " image-model ",
+            customProviderId = " team-endpoint ",
+        )
+        assertTrue(configured.isConfigured)
+        assertEquals("image-model", configured.normalizedModelId)
+        assertEquals("team-endpoint", configured.normalizedCustomProviderId)
+
+        val defaultCustom = configured.copy(customProviderId = " ")
+        assertEquals(CustomProviderProfile.DEFAULT_ID, defaultCustom.normalizedCustomProviderId)
+    }
+
+    @Test
     fun llmModelCatalog_resolvesDynamicKoogModelAndExecutor() {
         val resolved = LlmModelCatalog.resolveKoogModel(LlmProvider.CUSTOM, "my-custom-model")
         assertEquals(LLMProvider.OpenAI, resolved.provider)

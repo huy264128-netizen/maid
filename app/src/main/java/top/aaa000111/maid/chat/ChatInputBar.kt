@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -67,6 +68,7 @@ fun ChatInputBar(
     isModelUpdating: Boolean = false,
     modelControls: @Composable () -> Unit = {},
     personaControl: @Composable () -> Unit = {},
+    voiceInput: ChatVoiceInput? = null,
 ) {
     val hasAttachments = pendingFileUris.isNotEmpty() || pendingImageUris.isNotEmpty()
     val allowExternalInput = hasPendingQuestion || isPlanning
@@ -74,6 +76,10 @@ fun ChatInputBar(
     val canSend = (inputText.isNotBlank() || hasAttachments) && allowEditingAndSend && !isModelUpdating
     val showSendForExternalInput = allowExternalInput && canSend
     val showStopAction = isGenerating && !showSendForExternalInput
+    val showVoiceAction = voiceInput != null && !isGenerating && !isModelUpdating &&
+        !hasAttachments && inputText.isBlank()
+    val isRecordingVoice = !isGenerating && voiceInput?.recording == true
+    val isProcessingVoice = !isGenerating && voiceInput?.processing == true
     var previewingImageUri by rememberSaveable { mutableStateOf<String?>(null) }
 
     Surface(
@@ -209,14 +215,15 @@ fun ChatInputBar(
 
                     FilledIconButton(
                         onClick = {
-                            if (showStopAction) {
-                                onStopClick()
-                            } else {
-                                onSendClick()
+                            when {
+                                isRecordingVoice || showVoiceAction -> voiceInput?.onClick()
+                                showStopAction -> onStopClick()
+                                else -> onSendClick()
                             }
                         },
-                        enabled = showStopAction || canSend,
-                        colors = if (showStopAction) {
+                        enabled = !isProcessingVoice &&
+                            (isRecordingVoice || showVoiceAction || showStopAction || canSend),
+                        colors = if (isRecordingVoice || showStopAction) {
                             IconButtonDefaults.filledIconButtonColors(
                                 containerColor = MaterialTheme.colorScheme.errorContainer,
                                 contentColor = MaterialTheme.colorScheme.onErrorContainer,
@@ -228,14 +235,27 @@ fun ChatInputBar(
                             .padding(bottom = 4.dp)
                             .size(48.dp),
                     ) {
-                        Icon(
-                            painter = painterResource(
-                                if (showStopAction) R.drawable.ic_stop else R.drawable.ic_send,
-                            ),
-                            contentDescription = stringResource(
-                                if (showStopAction) R.string.chat_stop else R.string.chat_send,
-                            ),
-                        )
+                        if (isProcessingVoice) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(
+                                painter = painterResource(
+                                    when {
+                                        isRecordingVoice || showStopAction -> R.drawable.ic_stop
+                                        showVoiceAction -> R.drawable.ic_mic
+                                        else -> R.drawable.ic_send
+                                    },
+                                ),
+                                contentDescription = stringResource(
+                                    when {
+                                        isRecordingVoice -> R.string.chat_voice_stop
+                                        showStopAction -> R.string.chat_stop
+                                        showVoiceAction -> R.string.chat_voice_start
+                                        else -> R.string.chat_send
+                                    },
+                                ),
+                            )
+                        }
                     }
                 }
             }

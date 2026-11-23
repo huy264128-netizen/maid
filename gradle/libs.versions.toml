@@ -18,6 +18,7 @@ lifecycle = "2.11.0"
 composeMarkdown = "0.7.3"
 zstdJni = "1.5.7-28"
 litertlm = "0.19.1"
+sherpaOnnx = "v2.0.1"
 ksoup = "0.2.6"
 ktor = "3.2.2"
 browser = "1.10.0"
@@ -53,6 +54,7 @@ compose-markdown = { group = "com.github.jeziellago", name = "compose-markdown",
 zstd-jni-android = { group = "com.github.luben", name = "zstd-jni", version.ref = "zstdJni" }
 zstd-jni-jvm = { group = "com.github.luben", name = "zstd-jni", version.ref = "zstdJni" }
 litertlm-android = { group = "com.google.ai.edge.litertlm", name = "litertlm-android", version.ref = "litertlm" }
+sherpa-onnx = { group = "com.github.k2-fsa.sherpa-onnx", name = "sherpa-onnx", version.ref = "sherpaOnnx" }
 ksoup = { group = "com.fleeksoft.ksoup", name = "ksoup", version.ref = "ksoup" }
 ktor-client-core = { group = "io.ktor", name = "ktor-client-core", version.ref = "ktor" }
 ktor-client-okhttp = { group = "io.ktor", name = "ktor-client-okhttp", version.ref = "ktor" }

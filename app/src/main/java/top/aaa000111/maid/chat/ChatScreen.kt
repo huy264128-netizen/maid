@@ -36,6 +36,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -68,6 +69,7 @@ fun ChatScreen(
 
     ChatScreenContent(
         uiState = uiState,
+        onVoiceText = viewModel::appendVoiceText,
         onOpenSettings = onOpenSettings,
         onOpenTerminal = onOpenTerminal,
         onSelectSession = viewModel::selectSession,
@@ -123,10 +125,19 @@ fun ChatScreenContent(
     onSelectModelGroup: (String) -> Unit = {},
     isSwitchingPersona: Boolean = false,
     personaControl: @Composable () -> Unit = {},
+    onVoiceText: ((String, String) -> Unit)? = null,
     onOpenFile: (attachmentId: String?, fileName: String, uri: String, fallbackUri: String) -> Unit = { _, _, _, _ -> },
 ) {
     var showSessionSheet by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
+    val voiceInput = key(uiState.currentSessionId) {
+        rememberChatVoiceInput(
+            enabled = !uiState.isGenerating && !isSwitchingPersona &&
+                !uiState.modelGroupControls.isSwitching && uiState.inputText.isBlank() &&
+                uiState.pendingFileUris.isEmpty() && uiState.pendingImageUris.isEmpty(),
+            onText = { onVoiceText?.invoke(uiState.currentSessionId, it) },
+        )
+    }
 
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickMultipleVisualMedia(),
@@ -212,6 +223,7 @@ fun ChatScreenContent(
                 onRemoveImageUri = onRemoveImageUri,
                 onSendClick = onSendMessage,
                 onStopClick = onStopGenerating,
+                voiceInput = voiceInput.takeIf { onVoiceText != null },
                 isModelUpdating = uiState.modelGroupControls.isSwitching || isSwitchingPersona,
                 personaControl = personaControl,
                 modelControls = {

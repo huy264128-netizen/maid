@@ -53,6 +53,12 @@ Maid 是一款面向 Android 的 AI 助手。你可以和它自然对话、整�
 - [LLM 服务商接入](docs/llm_provider.md)：接入新的模型服务
 - [Shizuku 模块](docs/shizuku.md)：Shizuku 集成说明
 
+## 0.4.0 更新内容
+
+- **图片生成**：新增 OpenAI、Gemini、xAI、OpenRouter 与自定义 OpenAI 兼容端点支持；可在模型设置中配置默认生图服务商和模型，也可在任务中覆盖。
+- **语音输入**：新增 SenseVoice Small INT8 端侧语音识别，聊天输入框可录音转写；可选 TinyModel 清洗转写文本。
+- **服务与模型体验**：缓存已获取的模型列表，避免每次进入模型选项都重新请求。
+
 ## 0.3.0 更新内容
 
 - **虚拟显示器 Agent**：Planner 可以创建独立虚拟显示器并委派异步操作任务，读取该显示器的 UI 树或截图；每个显示器同一时间只由一个 Agent 操作。受信任显示器由 Shizuku UserService 创建和持有，因此需要 Shizuku 授权及设备相应的多显示器支持。
@@ -69,6 +75,8 @@ PRoot Linux 使用应用内共享的文件系统，不是会话之间相互隔�
 
 ## 致谢
 
-Maid 使用了 [LiteRT-LM](https://github.com/google-ai-edge/LiteRT-LM)、[JetBrains Koog](https://github.com/JetBrains/koog)、[PRoot / Termux](https://github.com/termux/proot)、[Shizuku](https://github.com/RikkaApps/Shizuku) 等开源项目。内置端侧模型来自 [s3nh/LFM2.5-350M-abliterated](https://huggingface.co/s3nh/LFM2.5-350M-abliterated)。
+Maid 使用了 [LiteRT-LM](https://github.com/google-ai-edge/LiteRT-LM)、[sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)、[JetBrains Koog](https://github.com/JetBrains/koog)、[PRoot / Termux](https://github.com/termux/proot)、[Shizuku](https://github.com/RikkaApps/Shizuku) 等开源项目。内置文字模型来自 [s3nh/LFM2.5-350M-abliterated](https://huggingface.co/s3nh/LFM2.5-350M-abliterated)。
+
+默认端侧语音识别模型 **SenseVoice Small INT8** 由 [FunAudioLLM / 阿里巴巴通义实验室](https://huggingface.co/FunAudioLLM/SenseVoiceSmall) 提供原始模型，使用 [k2-fsa / sherpa-onnx 发布的 ONNX INT8 转换版本](https://k2-fsa.github.io/sherpa/onnx/sense-voice/pretrained.html)。模型许可见 [FunASR 模型开源协议](https://github.com/modelscope/FunASR/blob/main/MODEL_LICENSE)。
 
 第三方代码、模型及 rootfs 中软件的许可和再分发条件，以各自项目的声明为准。

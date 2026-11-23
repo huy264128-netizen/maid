@@ -13,8 +13,8 @@ android {
         applicationId = "top.aaa000111.maid"
         minSdk = 31
         targetSdk = 37
-        versionCode = 300
-        versionName = "0.3.0"
+        versionCode = 400
+        versionName = "0.4.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -116,6 +116,9 @@ dependencies {
 
     // LiteRT-LM on-device LLM runtime (internal TinyModel)
     implementation(libs.litertlm.android)
+
+    // sherpa-onnx on-device speech processing
+    implementation(libs.sherpa.onnx)
 
     // Web search & HTML parsing (Ktor Client + Ksoup)
     implementation(libs.ktor.client.core)

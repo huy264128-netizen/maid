@@ -245,6 +245,9 @@ class ChatAgent(
                         extra = ResearchAgentManager(researchAgent).asToolRegistry(),
                     )
                 }
+                AppRuntime.createImageGenAgentManager(session)?.let { imageGen ->
+                    effectiveToolRegistry = mergeTools(effectiveToolRegistry, imageGen.asToolRegistry())
+                }
                 AppRuntime.createBrowserUseAgentManager()?.let { browserManager ->
                     effectiveToolRegistry = mergeTools(effectiveToolRegistry, browserManager.asToolRegistry())
                 }

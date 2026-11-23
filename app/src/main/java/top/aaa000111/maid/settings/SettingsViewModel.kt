@@ -7,6 +7,7 @@ import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -20,6 +21,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.aaa000111.maid.R
@@ -35,6 +37,7 @@ import top.aaa000111.maid.provider.LlmProvider
 import top.aaa000111.maid.provider.LlmProviderRegistry
 import top.aaa000111.maid.provider.ModelGroups
 import top.aaa000111.maid.provider.ModelConfigRepository
+import top.aaa000111.maid.provider.ImageGenModelSelection
 import top.aaa000111.maid.provider.ModelProviderTarget
 import top.aaa000111.maid.provider.ModelReasoningEffort
 import top.aaa000111.maid.provider.availableReasoningEfforts
@@ -94,6 +97,8 @@ data class SettingsUiState(
     val loadingModelProviders: Set<String> = emptySet(),
     val modelFetchErrors: Map<String, String> = emptyMap(),
     val isSavingModels: Boolean = false,
+    val imageGenModelSelection: ImageGenModelSelection = ImageGenModelSelection(),
+    val draftImageGenModelSelection: ImageGenModelSelection = ImageGenModelSelection(),
     val personaPresets: List<PersonaPreset> = emptyList(),
     val isScanningPersonas: Boolean = false,
     val savedPersonaConfig: PersonaConfig = PersonaConfig(),
@@ -248,6 +253,8 @@ private data class ModelSectionState(
     val loadingModelProviders: Set<String>,
     val modelFetchErrors: Map<String, String>,
     val isSavingModels: Boolean,
+    val imageGenModelSelection: ImageGenModelSelection,
+    val draftImageGenModelSelection: ImageGenModelSelection,
 )
 
 private data class SearchSectionState(
@@ -314,10 +321,14 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private val draftModelConfigs = MutableStateFlow(
         ModelRole.entries.associateWith { RoleModelSelection() },
     )
-    private val remoteModelsByProvider = MutableStateFlow<Map<String, List<LlmModelOption>>>(emptyMap())
-    private val loadingModelProviders = MutableStateFlow<Set<String>>(emptySet())
-    private val modelFetchErrors = MutableStateFlow<Map<String, String>>(emptyMap())
+    private companion object {
+        val remoteModelsByProvider = MutableStateFlow<Map<String, List<LlmModelOption>>>(emptyMap())
+        val loadingModelProviders = MutableStateFlow<Set<String>>(emptySet())
+        val modelFetchErrors = MutableStateFlow<Map<String, String>>(emptyMap())
+        val modelFetchJobs = mutableMapOf<String, Job>()
+    }
     private val isSavingModels = MutableStateFlow(false)
+    private val draftImageGenModelSelection = MutableStateFlow<ImageGenModelSelection?>(null)
 
     private val personaPresets = MutableStateFlow<List<PersonaPreset>>(emptyList())
     private val isScanningPersonas = MutableStateFlow(false)
@@ -450,6 +461,11 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         Triple(models, loading, errors)
     }
 
+    private val imageGenSelectionStateFlow = combine(
+        ModelConfigRepository.observeImageGenModelSelection(),
+        draftImageGenModelSelection,
+    ) { saved, draft -> saved to (draft ?: saved) }
+
     private val modelSectionFlow = combine(
         combine(
             ModelConfigRepository.observeModelGroups(),
@@ -458,7 +474,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         combine(draftModelConfigs, isCreatingModelGroup) { draft, creating -> draft to creating },
         remoteModelsStateFlow,
         isSavingModels,
-    ) { (groups, history), (draft, creating), (remoteModels, loadingProviders, errors), saving ->
+        imageGenSelectionStateFlow,
+    ) { (groups, history), (draft, creating), (remoteModels, loadingProviders, errors), saving, (savedImageGen, draftImageGen) ->
         val saved = groups.groups.firstOrNull { it.id == groups.activeId }?.selections.orEmpty()
         savedModelHistory = history
         val resolvedDraft = if (groups.activeId != lastActiveGroupId ||
@@ -481,6 +498,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             loadingModelProviders = loadingProviders,
             modelFetchErrors = errors,
             isSavingModels = saving,
+            imageGenModelSelection = savedImageGen,
+            draftImageGenModelSelection = draftImageGen,
         )
     }
 
@@ -663,6 +682,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             loadingModelProviders = models.loadingModelProviders,
             modelFetchErrors = models.modelFetchErrors,
             isSavingModels = models.isSavingModels,
+            imageGenModelSelection = models.imageGenModelSelection,
+            draftImageGenModelSelection = models.draftImageGenModelSelection,
             personaPresets = persona.presets,
             isScanningPersonas = persona.isScanning,
             savedPersonaConfig = persona.savedConfig,
@@ -784,9 +805,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             try {
                 LlmKeyRepository.deleteCustomProfileApiKey(targetId)
                 ModelConfigRepository.deleteCustomProfile(targetId)
-                val cacheKey = ModelProviderTarget.providerCacheKey(LlmProvider.CUSTOM, targetId)
-                remoteModelsByProvider.value -= cacheKey
-                modelFetchErrors.value -= cacheKey
+                invalidateModelList(ModelProviderTarget.providerCacheKey(LlmProvider.CUSTOM, targetId))
                 AppRuntime.invalidateExecutorsForProvider(LlmProvider.CUSTOM, targetId)
                 AppRuntime.syncModelExecutors()
                 selectCustomProfile(CustomProviderProfile.DEFAULT_ID)
@@ -830,15 +849,11 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                     LlmKeyRepository.saveCustomProfileApiKey(customProfileId, trimmed)
                     customProfileNameInput.value = profile.normalizedName
                     customBaseUrlInput.value = customUrl
-                    val cacheKey = ModelProviderTarget.providerCacheKey(LlmProvider.CUSTOM, customProfileId)
-                    remoteModelsByProvider.value -= cacheKey
-                    modelFetchErrors.value -= cacheKey
+                    invalidateModelList(ModelProviderTarget.providerCacheKey(LlmProvider.CUSTOM, customProfileId))
                     AppRuntime.invalidateExecutorsForProvider(LlmProvider.CUSTOM, customProfileId)
                 } else {
                     LlmKeyRepository.saveApiKey(targetProvider, trimmed)
-                    val cacheKey = ModelProviderTarget.providerCacheKey(targetProvider)
-                    remoteModelsByProvider.value -= cacheKey
-                    modelFetchErrors.value -= cacheKey
+                    invalidateModelList(ModelProviderTarget.providerCacheKey(targetProvider))
                     AppRuntime.invalidateExecutorsForProvider(targetProvider)
                 }
                 AppRuntime.syncModelExecutors()
@@ -867,15 +882,11 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                         ModelConfigRepository.deleteCustomProfile(customProfileId)
                         selectCustomProfile(CustomProviderProfile.DEFAULT_ID)
                     }
-                    val cacheKey = ModelProviderTarget.providerCacheKey(LlmProvider.CUSTOM, customProfileId)
-                    remoteModelsByProvider.value -= cacheKey
-                    modelFetchErrors.value -= cacheKey
+                    invalidateModelList(ModelProviderTarget.providerCacheKey(LlmProvider.CUSTOM, customProfileId))
                     AppRuntime.invalidateExecutorsForProvider(LlmProvider.CUSTOM, customProfileId)
                 } else {
                     LlmKeyRepository.deleteApiKey(targetProvider)
-                    val cacheKey = ModelProviderTarget.providerCacheKey(targetProvider)
-                    remoteModelsByProvider.value -= cacheKey
-                    modelFetchErrors.value -= cacheKey
+                    invalidateModelList(ModelProviderTarget.providerCacheKey(targetProvider))
                     AppRuntime.invalidateExecutorsForProvider(targetProvider)
                 }
                 AppRuntime.syncModelExecutors()
@@ -890,6 +901,22 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun onSelectImageGenProvider(target: ModelProviderTarget?) {
+        if (target != null && uiState.value.configuredModelTargets.none {
+                it.provider == target.provider && it.customProviderId == target.customProviderId
+            }
+        ) return
+        val current = uiState.value.draftImageGenModelSelection
+        draftImageGenModelSelection.value = current.copy(
+            provider = target?.provider,
+            customProviderId = target?.customProviderId,
+        )
+    }
+
+    fun onImageGenModelIdChanged(modelId: String) {
+        draftImageGenModelSelection.value = uiState.value.draftImageGenModelSelection.copy(modelId = modelId)
+    }
+
     fun onSelectModelProvider(role: ModelRole, target: ModelProviderTarget?) {
         if (target != null && uiState.value.configuredModelTargets.none {
                 it.provider == target.provider && it.customProviderId == target.customProviderId
@@ -901,16 +928,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         if (target != null &&
             current.provider == target.provider &&
             current.normalizedCustomProviderId == target.customProviderId
-        ) {
-            fetchModelsForProvider(target.provider, target.customProviderId)
-            return
-        }
+        ) return
         rememberDraftModel(role, current)
         val updatedSelection = RoleModelHistory.selectProvider(current, modelHistoryFor(role), target)
         draftModelConfigs.value += (role to updatedSelection)
-        if (target != null) {
-            fetchModelsForProvider(target.provider, target.customProviderId)
-        }
     }
 
     fun onSelectModelId(role: ModelRole, modelId: String) {
@@ -947,43 +968,55 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         draftModelConfigs.value = uiState.value.savedModelConfigs
     }
 
-    fun refreshSelectedProviderModels() {
-        val readyKeys = uiState.value.configuredModelTargets.map { it.cacheKey }.toSet()
-        draftModelConfigs.value.values
-            .mapNotNull { selection ->
-                val provider = selection.provider ?: return@mapNotNull null
-                val customId = selection.normalizedCustomProviderId
-                val key = ModelProviderTarget.providerCacheKey(provider, customId)
-                if (key in readyKeys) (provider to customId) else null
-            }
-            .distinct()
-            .forEach { (provider, customId) ->
-                fetchModelsForProvider(provider, customId)
-            }
-    }
-
     fun fetchModelsForProvider(
         provider: LlmProvider,
-        customProviderId: String? = null,
+        customProviderId: String?,
+        forceRefresh: Boolean,
     ) {
         val cacheKey = ModelProviderTarget.providerCacheKey(provider, customProviderId)
-        if (cacheKey in loadingModelProviders.value) return
-        viewModelScope.launch {
-            loadingModelProviders.value += cacheKey
-            modelFetchErrors.value -= cacheKey
+        if (cacheKey in modelFetchJobs) return
+        if (!forceRefresh &&
+            (cacheKey in remoteModelsByProvider.value || cacheKey in modelFetchErrors.value)
+        ) return
+
+        val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
+            val request = coroutineContext.job
             try {
-                LlmProviderRegistry.fetchModels(provider, customProviderId)
-                    .onSuccess { models ->
-                        remoteModelsByProvider.value += (cacheKey to models)
-                    }
-                    .onFailure { error ->
-                        remoteModelsByProvider.value -= cacheKey
-                        modelFetchErrors.value += (cacheKey to (error.message ?: "获取模型列表失败"))
-                    }
+                val result = LlmProviderRegistry.fetchModels(provider, customProviderId)
+                if (modelFetchJobs[cacheKey] !== request) return@launch
+                result.onSuccess { models ->
+                    remoteModelsByProvider.value += (cacheKey to models)
+                }.onFailure { error ->
+                    if (error is CancellationException) throw error
+                    modelFetchErrors.value += (cacheKey to (error.message ?: "获取模型列表失败"))
+                }
             } finally {
-                loadingModelProviders.value -= cacheKey
+                if (modelFetchJobs[cacheKey] === request) {
+                    modelFetchJobs.remove(cacheKey)
+                    loadingModelProviders.value -= cacheKey
+                }
             }
         }
+        modelFetchJobs[cacheKey] = job
+        loadingModelProviders.value += cacheKey
+        modelFetchErrors.value -= cacheKey
+        job.start()
+    }
+
+    private fun invalidateModelList(cacheKey: String) {
+        modelFetchJobs.remove(cacheKey)?.cancel()
+        loadingModelProviders.value -= cacheKey
+        remoteModelsByProvider.value -= cacheKey
+        modelFetchErrors.value -= cacheKey
+    }
+
+    private fun invalidateAllModelLists() {
+        val jobs = modelFetchJobs.values.toList()
+        modelFetchJobs.clear()
+        jobs.forEach { it.cancel() }
+        loadingModelProviders.value = emptySet()
+        remoteModelsByProvider.value = emptyMap()
+        modelFetchErrors.value = emptyMap()
     }
 
     fun startChatGptSignIn(forceConsent: Boolean = false) {
@@ -994,9 +1027,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 val pending = ChatGptAuthRepository.prepareSignIn(forceConsent = forceConsent)
                 _externalAuthUrls.emit(pending.authorizeUrl)
                 val resultState = ChatGptAuthRepository.awaitAndCompleteSignIn(pending)
-                val cacheKey = ModelProviderTarget.providerCacheKey(LlmProvider.CHATGPT)
-                remoteModelsByProvider.value -= cacheKey
-                modelFetchErrors.value -= cacheKey
+                invalidateModelList(ModelProviderTarget.providerCacheKey(LlmProvider.CHATGPT))
                 AppRuntime.syncModelExecutors()
                 if (resultState.isPlanUsageReady) {
                     _snackbarMessages.emit(R.string.settings_chatgpt_sign_in_success)
@@ -1043,9 +1074,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             try {
                 ChatGptAuthRepository.signOut()
-                val cacheKey = ModelProviderTarget.providerCacheKey(LlmProvider.CHATGPT)
-                remoteModelsByProvider.value -= cacheKey
-                modelFetchErrors.value -= cacheKey
+                invalidateModelList(ModelProviderTarget.providerCacheKey(LlmProvider.CHATGPT))
                 AppRuntime.invalidateExecutorsForProvider(LlmProvider.CHATGPT)
                 AppRuntime.syncModelExecutors()
                 _snackbarMessages.emit(R.string.settings_chatgpt_sign_out_success)
@@ -1072,6 +1101,11 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         if (newGroupName != null && newGroupName.isBlank()) return
         val groupId = lastActiveGroupId ?: return
         val draft = draftModelConfigs.value
+        val imageGenDraft = uiState.value.draftImageGenModelSelection
+        if (imageGenDraft.provider != null && !imageGenDraft.isConfigured) {
+            _statusMessages.tryEmit(appContext.getString(R.string.settings_image_gen_model_id_required))
+            return
+        }
         val incompleteRole = ModelRole.entries.firstOrNull { role ->
             draft[role]?.hasPartialInput == true
         }
@@ -1089,6 +1123,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 ModelConfigRepository.saveAllConfigs(
                     draft, ModelRole.entries.associateWith { modelHistoryFor(it) }, newGroupName, groupId,
                 )
+                ModelConfigRepository.saveImageGenModelSelection(uiState.value.draftImageGenModelSelection)
+                draftImageGenModelSelection.value = null
                 isCreatingModelGroup.value = false
                 AppRuntime.syncModelExecutors()
                 _snackbarMessages.emit(R.string.settings_model_saved)
@@ -1358,6 +1394,14 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         draftDeviceActionStepInput.value = saved.deviceActionMaxIterations.toString()
     }
 
+    internal val voiceCleanupEnabled = TinyModelConfigRepository.observeVoiceCleanupEnabled()
+
+    internal fun setVoiceCleanupEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            TinyModelConfigRepository.setVoiceCleanupEnabled(enabled)
+        }
+    }
+
     fun setCrossChatMemoryEnabled(enabled: Boolean) {
         viewModelScope.launch {
             AgentStepConfigRepository.setCrossChatMemoryEnabled(enabled)
@@ -1479,8 +1523,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 selectedCustomProfileId.value = CustomProviderProfile.DEFAULT_ID
                 customProfileNameInput.value = ModelConfigRepository.DEFAULT_CUSTOM_PROFILE_NAME
                 customBaseUrlInput.value = ""
-                remoteModelsByProvider.value = emptyMap()
-                modelFetchErrors.value = emptyMap()
+                invalidateAllModelLists()
                 inputErrorRes.value = null
                 inputText.value = ""
                 AppRuntime.clearAllCachedExecutors()
@@ -1504,9 +1547,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             isBusy.value = true
             try {
                 ChatGptAuthRepository.signOut()
-                val cacheKey = ModelProviderTarget.providerCacheKey(LlmProvider.CHATGPT)
-                remoteModelsByProvider.value -= cacheKey
-                modelFetchErrors.value -= cacheKey
+                invalidateModelList(ModelProviderTarget.providerCacheKey(LlmProvider.CHATGPT))
                 AppRuntime.invalidateExecutorsForProvider(LlmProvider.CHATGPT)
                 AppRuntime.syncModelExecutors()
                 _snackbarMessages.emit(R.string.settings_clear_data_chatgpt_done)
@@ -1643,8 +1684,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                     selectedCustomProfileId.value = CustomProviderProfile.DEFAULT_ID
                     customProfileNameInput.value = ModelConfigRepository.DEFAULT_CUSTOM_PROFILE_NAME
                     customBaseUrlInput.value = ""
-                    remoteModelsByProvider.value = emptyMap()
-                    modelFetchErrors.value = emptyMap()
+                    invalidateAllModelLists()
                     inputErrorRes.value = null
                     inputText.value = ""
                     AppRuntime.clearAllCachedExecutors()
@@ -1653,9 +1693,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                     chatGptSignInJob?.cancel()
                     chatGptSignInJob = null
                     ChatGptAuthRepository.signOut()
-                    val cacheKey = ModelProviderTarget.providerCacheKey(LlmProvider.CHATGPT)
-                    remoteModelsByProvider.value -= cacheKey
-                    modelFetchErrors.value -= cacheKey
+                    invalidateModelList(ModelProviderTarget.providerCacheKey(LlmProvider.CHATGPT))
                     AppRuntime.invalidateExecutorsForProvider(LlmProvider.CHATGPT)
                 }
                 if (clearApiKeys || clearChatGptSession) {

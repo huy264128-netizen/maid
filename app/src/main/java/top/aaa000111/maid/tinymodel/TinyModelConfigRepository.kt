@@ -3,6 +3,7 @@ package top.aaa000111.maid.tinymodel
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -37,6 +38,7 @@ object TinyModelConfigRepository {
     private val KEY_ASSET_PATH = stringPreferencesKey("tiny_model_asset_path")
     private val KEY_CUSTOM_PATH = stringPreferencesKey("tiny_model_custom_path")
     private val KEY_BACKEND_PREFERENCE = stringPreferencesKey("tiny_model_backend_preference")
+    private val KEY_VOICE_CLEANUP_ENABLED = booleanPreferencesKey("voice_cleanup_enabled")
 
     @Volatile
     private var appContext: Context? = null
@@ -55,6 +57,13 @@ object TinyModelConfigRepository {
 
     private fun requireContext(): Context {
         return appContext ?: error("TinyModelConfigRepository must be initialized via init(context) first")
+    }
+
+    internal fun observeVoiceCleanupEnabled(): Flow<Boolean> =
+        requireContext().tinyModelConfigDataStore.data.map { it[KEY_VOICE_CLEANUP_ENABLED] ?: false }
+
+    internal suspend fun setVoiceCleanupEnabled(enabled: Boolean) {
+        requireContext().tinyModelConfigDataStore.edit { it[KEY_VOICE_CLEANUP_ENABLED] = enabled }
     }
 
     fun observeSelection(): Flow<TinyModelSelection> {

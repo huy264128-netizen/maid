@@ -9,6 +9,10 @@
 
 ---
 
+## 图片生成
+
+聊天和 Planner 可调用独立的 `ImageGenProvider`。生图复用 API Key 管理中的凭据和自定义端点档案，默认图片服务商、端点和模型 ID 由模型选择页单独持久化；工具参数可覆盖默认选择。当前支持 OpenAI 和自定义兼容服务的 `/images/generations`、xAI 的同名接口、OpenRouter 的 `/images` 与 Gemini 原生的 `generateContent`。结果以 PNG、JPEG 或 WebP 会话附件交付。服务商返回的图片下载链接仅在后台读取，且不会附带 API Key。生图的等待与附件 ID 见 [Agent Manager 文档](agent_managers.md)。
+
 ## 1. 架构总览
 
 ```text
